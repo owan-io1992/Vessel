@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Installing dependencies..."
+bun install || {
+  echo "Error: bun install failed!" >&2
+  exit 1
+}
+
+echo "Starting Tauri dev server..."
+bun tauri dev || {
+  echo "Error: bun tauri dev failed!" >&2
+  exit 1
+}
