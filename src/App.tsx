@@ -237,6 +237,9 @@ function App() {
   
   // Tabs & Console States
   const [activeTab, setActiveTab] = useState<"status" | "console">("status");
+  const [spicePort, setSpicePort] = useState<number | null>(null);
+  const [spiceError, setSpiceError] = useState<string | null>(null);
+  const [spiceLoading, setSpiceLoading] = useState(false);
 
   // CPU usage tracking state & ref
   const [cpuUsage, setCpuUsage] = useState<{ [name: string]: number }>({});
@@ -365,6 +368,26 @@ function App() {
       prevSelectedRef.current = current;
     }
   }, [selectedVmNames]);
+
+  useEffect(() => {
+    const selectedVmName = selectedVmNames[0];
+    if (activeTab === "console" && selectedVmName) {
+      setSpiceLoading(true);
+      setSpiceError(null);
+      setSpicePort(null);
+      invoke<number>("get_vm_spice_port", { name: selectedVmName })
+        .then((port) => {
+          setSpicePort(port);
+        })
+        .catch((err) => {
+          console.error(err);
+          setSpiceError(err?.toString() || "Failed to get SPICE port for VM.");
+        })
+        .finally(() => {
+          setSpiceLoading(false);
+        });
+    }
+  }, [activeTab, selectedVmNames]);
 
 
 
@@ -774,27 +797,25 @@ function App() {
                     // Console Tab
                     <div className="console-panel">
                       {selectedVm.state === 1 ? (
-                        <div className="graphic-console-screen">
-                          <div className="console-monitor-wrapper">
-                            <span className="console-monitor-icon">🖥️</span>
-                          </div>
-                          <h3>SPICE / VNC 圖形化主控台</h3>
-                          <p className="console-status-text">連線狀態：準備就緒 (Ready)</p>
-                          <p className="console-desc-text">
-                            Vessel 將透過系統的 `virt-viewer` 顯示此虛擬機的圖形化畫面，您將可以看到虛擬機開機過程的 GRUB 選單與完整的作業系統登入畫面。
-                          </p>
-                          <button
-                            className="btn-open-console"
-                            onClick={async () => {
-                              try {
-                                await invoke("open_viewer", { name: selectedVm.name });
-                              } catch (err: any) {
-                                setError(`無法啟動主控台視窗：${err?.toString() || "未知錯誤"}`);
-                              }
-                            }}
-                          >
-                            🔌 啟動主控台視窗
-                          </button>
+                        <div className="graphic-console-screen" style={{ width: "100%", height: "100%", padding: 0 }}>
+                          {spiceLoading && (
+                            <div className="spice-loading-spinner" style={{ padding: "3rem", color: "#24C6DC", fontWeight: 550, textAlign: "center" }}>
+                              正在獲取主控台連接埠...
+                            </div>
+                          )}
+                          {spiceError && (
+                            <div className="spice-error-container" style={{ padding: "3rem", color: "#EF4444", textAlign: "center" }}>
+                              <p>{spiceError}</p>
+                              <p style={{ fontSize: "0.8rem", color: "#94A3B8" }}>請確認此虛擬機在 libvirt 中已配置圖形顯示器 (SPICE/VNC)。</p>
+                            </div>
+                          )}
+                          {spicePort && (
+                            <iframe
+                              src={`/spice/spice_auto.html?host=127.0.0.1&port=5959&path=${spicePort}`}
+                              style={{ width: "100%", height: "100%", minHeight: "500px", border: "none", borderRadius: "12px", background: "#030508" }}
+                              title="SPICE Console"
+                            />
+                          )}
                         </div>
                       ) : (
                         <div className="terminal-offline-screen">

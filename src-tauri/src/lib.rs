@@ -3,6 +3,13 @@ use serde::{Serialize, Deserialize};
 use virt::connect::Connect;
 use virt::domain::Domain;
 
+use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use futures_util::{StreamExt, SinkExt};
+use tokio_tungstenite::accept_hdr_async;
+use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+use tokio_tungstenite::tungstenite::Message;
+
 #[derive(Serialize, Deserialize, Clone)]
 struct DomainItem {
     name: String,
@@ -179,8 +186,119 @@ fn open_viewer(name: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to launch virt-viewer: {}", e))
 }
 
+#[tauri::command]
+fn get_vm_spice_port(name: String) -> Result<u16, String> {
+    let conn = connect_libvirt()?;
+    let dom = Domain::lookup_by_name(&conn, &name)
+        .map_err(|e| format!("VM not found: {}", e))?;
+    
+    let xml = dom.get_xml_desc(0)
+        .map_err(|e| format!("Failed to get VM XML: {}", e))?;
+    
+    // Check for SPICE graphics port
+    if let Some(idx) = xml.find("type='spice'") {
+        if let Some(port_start) = xml[idx..].find("port='") {
+            let start = idx + port_start + 6;
+            if let Some(port_end) = xml[start..].find("'") {
+                let port_str = &xml[start..start + port_end];
+                if let Ok(p) = port_str.parse::<u16>() {
+                    return Ok(p);
+                }
+            }
+        }
+    }
+    
+    // Fallback: check for VNC graphics port
+    if let Some(idx) = xml.find("type='vnc'") {
+        if let Some(port_start) = xml[idx..].find("port='") {
+            let start = idx + port_start + 6;
+            if let Some(port_end) = xml[start..].find("'") {
+                let port_str = &xml[start..start + port_end];
+                if let Ok(p) = port_str.parse::<u16>() {
+                    return Ok(p);
+                }
+            }
+        }
+    }
+    
+    Err("No graphics display (SPICE or VNC) found for this VM".to_string())
+}
+
+async fn run_proxy_server() {
+    let listener = match TcpListener::bind("127.0.0.1:5959").await {
+        Ok(l) => l,
+        Err(_) => return,
+    };
+    
+    while let Ok((stream, _)) = listener.accept().await {
+        tokio::spawn(async move {
+            let target_port = std::sync::Arc::new(std::sync::atomic::AtomicU16::new(5900));
+            let port_clone = target_port.clone();
+            let callback = move |req: &Request, response: Response| {
+                let uri = req.uri();
+                let path = uri.path();
+                if let Some(port_str) = path.strip_prefix('/') {
+                    if let Ok(p) = port_str.parse::<u16>() {
+                        port_clone.store(p, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+                Ok(response)
+            };
+            
+            let ws_stream = match accept_hdr_async(stream, callback).await {
+                Ok(ws) => ws,
+                Err(_) => return,
+            };
+            
+            let resolved_port = target_port.load(std::sync::atomic::Ordering::SeqCst);
+            let tcp_stream = match TcpStream::connect(format!("127.0.0.1:{}", resolved_port)).await {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let _ = tcp_stream.set_nodelay(true);
+            
+            let (mut tcp_read, mut tcp_write) = tcp_stream.into_split();
+            let (mut ws_write, mut ws_read) = ws_stream.split();
+            
+            let ws_to_tcp = async {
+                while let Some(Ok(msg)) = ws_read.next().await {
+                    if msg.is_binary() || msg.is_text() {
+                        let data = msg.into_data();
+                        if tcp_write.write_all(&data).await.is_err() {
+                            break;
+                        }
+                    } else if msg.is_close() {
+                        break;
+                    }
+                }
+                let _ = tcp_write.shutdown().await;
+            };
+            
+            let tcp_to_ws = async {
+                let mut buf = vec![0u8; 8192];
+                loop {
+                    match tcp_read.read(&mut buf).await {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            let msg = Message::Binary(buf[..n].to_vec());
+                            if ws_write.send(msg).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            };
+            
+            tokio::join!(ws_to_tcp, tcp_to_ws);
+        });
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    tauri::async_runtime::spawn(run_proxy_server());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -192,7 +310,8 @@ pub fn run() {
             resume_domain,
             reboot_domain,
             reset_domain,
-            open_viewer
+            open_viewer,
+            get_vm_spice_port
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
