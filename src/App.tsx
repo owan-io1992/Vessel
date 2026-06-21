@@ -37,24 +37,7 @@ const formatMemory = (kb: number) => {
   return `${Math.round(mb)} MB`;
 };
 
-// Initial Console Boot Logs
-const getInitialLogs = (vmName: string) => [
-  `Vessel Virtual Console v1.0.0`,
-  `Connecting to serial console for ${vmName}...`,
-  `Connected. Type 'help' for a list of available commands.`,
-  ``,
-  `Welcome to Ubuntu 24.04 LTS (GNU/Linux 6.8.0-generic x86_64)`,
-  ` * Documentation:  https://help.ubuntu.com`,
-  ` * Management:     https://landscape.canonical.com`,
-  ` * Support:        https://ubuntu.com/pro`,
-  ``,
-  `System information as of Mon Jun 22 12:00:00 UTC 2026`,
-  ``,
-  `  System load:  0.02               Processes:             98`,
-  `  Usage of /:   11.5% of 19.56GB   Users logged in:       0`,
-  `  Memory usage: 7%                 IPv4 address for eth0: 192.168.122.42`,
-  ``,
-];
+
 
 interface MiniLineChartProps {
   data: number[];
@@ -254,9 +237,6 @@ function App() {
   
   // Tabs & Console States
   const [activeTab, setActiveTab] = useState<"status" | "console">("status");
-  const [consoleInput, setConsoleInput] = useState("");
-  const [consoleLogs, setConsoleLogs] = useState<{ [vmName: string]: string[] }>({});
-  const terminalEndRef = useRef<HTMLDivElement>(null);
 
   // CPU usage tracking state & ref
   const [cpuUsage, setCpuUsage] = useState<{ [name: string]: number }>({});
@@ -386,12 +366,7 @@ function App() {
     }
   }, [selectedVmNames]);
 
-  // Auto scroll terminal
-  useEffect(() => {
-    if (activeTab === "console") {
-      terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [consoleLogs, activeTab]);
+
 
   // Multi-select Click Handler
   const handleItemClick = (e: React.MouseEvent, name: string) => {
@@ -493,77 +468,7 @@ function App() {
     }
   };
 
-  // Console Command Interpreter
-  const handleConsoleSubmit = async (e: React.FormEvent, vmName: string, vm: DomainItem) => {
-    e.preventDefault();
-    const cmd = consoleInput.trim();
-    if (!cmd) return;
 
-    setConsoleInput("");
-    const currentLogs = consoleLogs[vmName] || getInitialLogs(vmName);
-    const updatedLogs = [...currentLogs, `root@${vmName}:~# ${cmd}`];
-
-    let output: string[] = [];
-    const commandLower = cmd.toLowerCase();
-
-    if (commandLower === "help") {
-      output = [
-        "Available commands:",
-        "  help      - Show this help summary",
-        "  status    - Print KVM/LXC status and system allocation",
-        "  neofetch  - Print system parameters and logo",
-        "  restart   - Reboot the virtual machine",
-        "  shutdown  - Gracefully shutdown the virtual machine",
-        "  clear     - Clear the terminal console log screen"
-      ];
-    } else if (commandLower === "clear") {
-      setConsoleLogs((prev) => ({ ...prev, [vmName]: [] }));
-      return;
-    } else if (commandLower === "status") {
-      output = [
-        `Domain: ${vm.name}`,
-        `OS Type: ${vm.os_type}`,
-        `vCPUs: ${vm.vcpu_count}`,
-        `Memory: ${formatMemory(vm.max_mem)}`,
-        `State Code: ${vm.state} (${getStateInfo(vm.state).label})`
-      ];
-    } else if (commandLower === "neofetch") {
-      output = [
-        "            .-.          root@" + vmName,
-        "            oo|          --------------",
-        "           /`'\\          OS: Vessel OS Linux x86_64",
-        "          (/\\/\\)         Kernel: 6.8.0-35-generic",
-        "          ====           Uptime: 2 days, 4 hours",
-        "         /     \\         Shell: bash 5.2.21",
-        "        |       |        CPU: QEMU Virtual CPU (" + vm.vcpu_count + ")",
-        "        |  ___  |        Memory: " + formatMemory(vm.max_mem) + " / 32 GB",
-        "        /_/   \\_\\"
-      ];
-    } else if (commandLower === "restart") {
-      output = [`Sending ACPI reboot command to guest...`];
-      try {
-        await invoke("reboot_domain", { name: vmName });
-        output.push(`Reboot command acknowledged by libvirt.`);
-      } catch (err: any) {
-        output.push(`Error: ${err?.toString() || "Reboot failed"}`);
-      }
-    } else if (commandLower === "shutdown") {
-      output = [`Sending graceful ACPI shutdown signal to guest...`];
-      try {
-        await invoke("shutdown_domain", { name: vmName });
-        output.push(`Shutdown signal acknowledged by libvirt.`);
-      } catch (err: any) {
-        output.push(`Error: ${err?.toString() || "Shutdown failed"}`);
-      }
-    } else {
-      output = [`bash: command not found: ${cmd}`];
-    }
-
-    setConsoleLogs((prev) => ({
-      ...prev,
-      [vmName]: [...updatedLogs, ...output, ""],
-    }));
-  };
 
   const runningCount = domains.filter((d) => d.state === 1).length;
   const stoppedCount = domains.filter((d) => d.state !== 1).length;
@@ -866,38 +771,36 @@ function App() {
 
                     </>
                   ) : (
-                    // Console Terminal Tab
+                    // Console Tab
                     <div className="console-panel">
                       {selectedVm.state === 1 ? (
-                        <div className="terminal-screen">
-                          <div className="terminal-history">
-                            {(consoleLogs[selectedVm.name] || getInitialLogs(selectedVm.name)).map((line, idx) => (
-                              <div key={idx} className="terminal-line">
-                                {line}
-                              </div>
-                            ))}
-                            <div ref={terminalEndRef} />
+                        <div className="graphic-console-screen">
+                          <div className="console-monitor-wrapper">
+                            <span className="console-monitor-icon">🖥️</span>
                           </div>
-                          <form
-                            className="terminal-input-row"
-                            onSubmit={(e) => handleConsoleSubmit(e, selectedVm.name, selectedVm)}
+                          <h3>SPICE / VNC 圖形化主控台</h3>
+                          <p className="console-status-text">連線狀態：準備就緒 (Ready)</p>
+                          <p className="console-desc-text">
+                            Vessel 將透過系統的 `virt-viewer` 顯示此虛擬機的圖形化畫面，您將可以看到虛擬機開機過程的 GRUB 選單與完整的作業系統登入畫面。
+                          </p>
+                          <button
+                            className="btn-open-console"
+                            onClick={async () => {
+                              try {
+                                await invoke("open_viewer", { name: selectedVm.name });
+                              } catch (err: any) {
+                                setError(`無法啟動主控台視窗：${err?.toString() || "未知錯誤"}`);
+                              }
+                            }}
                           >
-                            <span className="terminal-prompt">root@{selectedVm.name}:~#</span>
-                            <input
-                              type="text"
-                              className="terminal-input"
-                              value={consoleInput}
-                              onChange={(e) => setConsoleInput(e.target.value)}
-                              autoFocus
-                            />
-                            <span className="blinking-cursor"></span>
-                          </form>
+                            🔌 啟動主控台視窗
+                          </button>
                         </div>
                       ) : (
                         <div className="terminal-offline-screen">
                           <span className="terminal-offline-icon">🔌</span>
-                          <p>Connection closed. VM is offline.</p>
-                          <p className="terminal-subtext">Please start the virtual machine to open the serial console.</p>
+                          <p>主控台已中斷連線。虛擬機處於關機狀態。</p>
+                          <p className="terminal-subtext">請先將虛擬機開機，即可開啟圖形化主控台畫面。</p>
                         </div>
                       )}
                     </div>

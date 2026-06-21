@@ -168,6 +168,17 @@ fn reset_domain(name: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to reset VM: {}", e))
 }
 
+#[tauri::command]
+fn open_viewer(name: String) -> Result<(), String> {
+    std::process::Command::new("virt-viewer")
+        .arg("-c")
+        .arg("qemu:///system")
+        .arg(&name)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to launch virt-viewer: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -180,7 +191,8 @@ pub fn run() {
             suspend_domain,
             resume_domain,
             reboot_domain,
-            reset_domain
+            reset_domain,
+            open_viewer
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
