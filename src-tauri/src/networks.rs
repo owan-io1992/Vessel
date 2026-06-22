@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use virt::network::Network;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct NetworkItem {
@@ -77,4 +78,82 @@ pub fn list_networks() -> Result<Vec<NetworkItem>, String> {
     }
     
     Ok(list)
+}
+
+#[tauri::command]
+pub fn start_network(name: String) -> Result<(), String> {
+    let conn = crate::connect_libvirt()?;
+    let net = Network::lookup_by_name(&conn, &name)
+        .map_err(|e| format!("Network not found: {}", e))?;
+    net.create()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to start network: {}", e))
+}
+
+#[tauri::command]
+pub fn stop_network(name: String) -> Result<(), String> {
+    let conn = crate::connect_libvirt()?;
+    let net = Network::lookup_by_name(&conn, &name)
+        .map_err(|e| format!("Network not found: {}", e))?;
+    net.destroy()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to stop network: {}", e))
+}
+
+#[tauri::command]
+pub fn delete_network(name: String) -> Result<(), String> {
+    let conn = crate::connect_libvirt()?;
+    let net = Network::lookup_by_name(&conn, &name)
+        .map_err(|e| format!("Network not found: {}", e))?;
+    // Stop if active before undefining
+    if net.is_active().unwrap_or(false) {
+        let _ = net.destroy();
+    }
+    net.undefine()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to delete network: {}", e))
+}
+
+#[tauri::command]
+pub fn create_network(name: String, subnet: String, dhcp_start: String, dhcp_end: String, forward_mode: String) -> Result<(), String> {
+    let conn = crate::connect_libvirt()?;
+
+    // Parse subnet like "192.168.100.0/24"
+    let parts: Vec<&str> = subnet.split('/').collect();
+    let ip_addr = parts.first().unwrap_or(&"192.168.100.0");
+    let prefix = parts.get(1).unwrap_or(&"24");
+
+    // Derive gateway from subnet (replace last octet with 1)
+    let gateway = if let Some(last_dot) = ip_addr.rfind('.') {
+        format!("{}1", &ip_addr[..=last_dot])
+    } else {
+        ip_addr.to_string()
+    };
+
+    let forward_xml = if forward_mode.is_empty() || forward_mode.to_lowercase() == "isolated" {
+        String::new()
+    } else {
+        format!("  <forward mode='{}'/>\n", forward_mode.to_lowercase())
+    };
+
+    let dhcp_xml = if dhcp_start.is_empty() || dhcp_end.is_empty() {
+        String::new()
+    } else {
+        format!("    <dhcp>\n      <range start='{}' end='{}'/>\n    </dhcp>\n", dhcp_start, dhcp_end)
+    };
+
+    let xml = format!(
+        "<network>\n  <name>{}</name>\n{}\
+         <bridge name='virbr-{}' stp='on' delay='0'/>\n  \
+         <ip address='{}' prefix='{}'>\n{}\
+         </ip>\n</network>",
+        name, forward_xml, name, gateway, prefix, dhcp_xml
+    );
+
+    let net = Network::define_xml(&conn, &xml)
+        .map_err(|e| format!("Failed to define network: {}", e))?;
+    net.set_autostart(true).ok();
+    net.create()
+        .map(|_| ())
+        .map_err(|e| format!("Network defined but failed to start: {}", e))
 }

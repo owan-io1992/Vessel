@@ -701,6 +701,7 @@ function App() {
         networks={networks}
         storagePools={storagePools}
         t={t}
+        onRefresh={() => { fetchNetworks(); fetchStoragePools(); fetchDomains(); }}
       />
     </div>
   );

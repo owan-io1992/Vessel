@@ -2,6 +2,7 @@ use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use virt::connect::Connect;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SystemResources {
@@ -116,4 +117,17 @@ pub fn get_system_resources() -> Result<SystemResources, String> {
         mem_available_kb,
         os_platform,
     })
+}
+
+#[tauri::command]
+pub fn set_libvirt_uri(uri: String) -> Result<(), String> {
+    Connect::open(Some(&uri))
+        .map_err(|e| format!("Failed to connect with URI '{}': {}", uri, e))?;
+    *crate::LIBVIRT_URI.lock().unwrap() = Some(uri);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_libvirt_uri() -> String {
+    crate::LIBVIRT_URI.lock().unwrap().clone().unwrap_or_else(|| "qemu:///system".to_string())
 }

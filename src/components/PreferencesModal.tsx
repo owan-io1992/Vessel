@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { NetworkItem, StoragePoolItem, SystemResources } from "../types";
 import { TranslationKey } from "../translations";
 
@@ -17,6 +18,7 @@ interface PreferencesModalProps {
   networks: NetworkItem[];
   storagePools: StoragePoolItem[];
   t: (key: TranslationKey, replaceMap?: Record<string, string | number>) => string;
+  onRefresh: () => void;
 }
 
 export const PreferencesModal = ({
@@ -33,11 +35,36 @@ export const PreferencesModal = ({
   systemResources,
   networks,
   storagePools,
-  t
+  t,
+  onRefresh
 }: PreferencesModalProps) => {
   const [prefCategory, setPrefCategory] = useState<"connection" | "networks" | "storage" | "theme" | "language">("connection");
   const [selectedNetworkId, setSelectedNetworkId] = useState("");
   const [selectedStorageId, setSelectedStorageId] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Create network form
+  const [showCreateNet, setShowCreateNet] = useState(false);
+  const [newNetName, setNewNetName] = useState("");
+  const [newNetSubnet, setNewNetSubnet] = useState("192.168.100.0/24");
+  const [newNetDhcpStart, setNewNetDhcpStart] = useState("192.168.100.100");
+  const [newNetDhcpEnd, setNewNetDhcpEnd] = useState("192.168.100.200");
+  const [newNetForward, setNewNetForward] = useState("nat");
+
+  // Create pool form
+  const [showCreatePool, setShowCreatePool] = useState(false);
+  const [newPoolName, setNewPoolName] = useState("");
+  const [newPoolPath, setNewPoolPath] = useState("/var/lib/libvirt/images");
+
+  // Create volume form
+  const [showCreateVol, setShowCreateVol] = useState(false);
+  const [newVolName, setNewVolName] = useState("");
+  const [newVolSize, setNewVolSize] = useState("10");
+  const [newVolFormat, setNewVolFormat] = useState("qcow2");
+
+  // URI switching
+  const [uriInput, setUriInput] = useState(libvirtUri);
+  const [uriSwitching, setUriSwitching] = useState(false);
 
   if (!showPrefModal) return null;
 
@@ -52,6 +79,124 @@ export const PreferencesModal = ({
   const activeNetwork = networks.find((n) => n.id === selectedNetworkId) || networks[0];
   const activeStorage = storagePools.find((p) => p.id === selectedStorageId) || storagePools[0];
 
+  const handleSwitchUri = async () => {
+    setUriSwitching(true);
+    setActionError(null);
+    try {
+      await invoke("set_libvirt_uri", { uri: uriInput });
+      setLibvirtUri(uriInput);
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err?.toString() || "Failed to switch URI");
+    } finally {
+      setUriSwitching(false);
+    }
+  };
+
+  const handleNetworkAction = async (action: string, name: string) => {
+    setActionError(null);
+    try {
+      await invoke(action, { name });
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err?.toString() || "Network action failed");
+    }
+  };
+
+  const handleCreateNetwork = async () => {
+    setActionError(null);
+    try {
+      await invoke("create_network", {
+        name: newNetName,
+        subnet: newNetSubnet,
+        dhcpStart: newNetDhcpStart,
+        dhcpEnd: newNetDhcpEnd,
+        forwardMode: newNetForward,
+      });
+      setShowCreateNet(false);
+      setNewNetName("");
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err?.toString() || "Failed to create network");
+    }
+  };
+
+  const handleDeleteNetwork = async (name: string) => {
+    if (!confirm(t("net_confirm_delete"))) return;
+    setActionError(null);
+    try {
+      await invoke("delete_network", { name });
+      setSelectedNetworkId("");
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err?.toString() || "Failed to delete network");
+    }
+  };
+
+  const handlePoolAction = async (action: string, name: string) => {
+    setActionError(null);
+    try {
+      await invoke(action, { name });
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err?.toString() || "Storage pool action failed");
+    }
+  };
+
+  const handleCreatePool = async () => {
+    setActionError(null);
+    try {
+      await invoke("create_storage_pool", { name: newPoolName, path: newPoolPath });
+      setShowCreatePool(false);
+      setNewPoolName("");
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err?.toString() || "Failed to create storage pool");
+    }
+  };
+
+  const handleDeletePool = async (name: string) => {
+    if (!confirm(t("store_confirm_delete"))) return;
+    setActionError(null);
+    try {
+      await invoke("delete_storage_pool", { name });
+      setSelectedStorageId("");
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err?.toString() || "Failed to delete storage pool");
+    }
+  };
+
+  const handleCreateVolume = async () => {
+    if (!activeStorage) return;
+    setActionError(null);
+    try {
+      await invoke("create_volume", {
+        poolName: activeStorage.name,
+        volName: newVolName,
+        sizeGb: parseInt(newVolSize) || 10,
+        format: newVolFormat,
+      });
+      setShowCreateVol(false);
+      setNewVolName("");
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err?.toString() || "Failed to create volume");
+    }
+  };
+
+  const handleDeleteVolume = async (volName: string) => {
+    if (!activeStorage) return;
+    if (!confirm(t("vol_confirm_delete"))) return;
+    setActionError(null);
+    try {
+      await invoke("delete_volume", { poolName: activeStorage.name, volName });
+      onRefresh();
+    } catch (err: any) {
+      setActionError(err?.toString() || "Failed to delete volume");
+    }
+  };
+
   return (
     <div className="preferences-modal-overlay" onClick={() => setShowPrefModal(false)}>
       <div className="preferences-modal" onClick={(e) => e.stopPropagation()}>
@@ -59,7 +204,7 @@ export const PreferencesModal = ({
           <span className="preferences-modal-title">{t("modal_title")}</span>
           <button className="btn-close-modal" onClick={() => setShowPrefModal(false)}>&times;</button>
         </div>
-        
+
         <div className="preferences-modal-body">
           {/* Modal left sidebar categories */}
           <div className="preferences-modal-sidebar">
@@ -97,20 +242,38 @@ export const PreferencesModal = ({
 
           {/* Modal right content display */}
           <div className="preferences-modal-content">
+            {actionError && (
+              <div className="notification-banner" style={{ marginBottom: "1rem" }}>
+                <span>{actionError}</span>
+                <button className="btn-close-banner" onClick={() => setActionError(null)}>&times;</button>
+              </div>
+            )}
+
             {prefCategory === "connection" && (
               <div className="settings-group">
                 <div className="settings-group-title">{t("modal_conn")}</div>
                 <div className="form-row">
                   <span className="form-label">{t("pref_libvirt_uri")}</span>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={libvirtUri}
-                    onChange={(e) => setLibvirtUri(e.target.value)}
-                  />
+                  <div style={{ display: "flex", gap: "0.5rem", flex: 1 }}>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={uriInput}
+                      onChange={(e) => setUriInput(e.target.value)}
+                      placeholder={t("conn_uri_placeholder")}
+                    />
+                    <button
+                      className="btn-save-settings"
+                      style={{ margin: 0, whiteSpace: "nowrap" }}
+                      onClick={handleSwitchUri}
+                      disabled={uriSwitching || uriInput === libvirtUri}
+                    >
+                      {uriSwitching ? "..." : t("conn_switch_uri")}
+                    </button>
+                  </div>
                 </div>
                 <div className="form-row">
-                  <span className="form-label">{t("pref_autoconconnect" as any) || t("pref_autoconnect")}</span>
+                  <span className="form-label">{t("pref_autoconnect")}</span>
                   <input
                     type="checkbox"
                     className="form-checkbox"
@@ -118,7 +281,7 @@ export const PreferencesModal = ({
                     onChange={(e) => setAutoconnect(e.target.checked)}
                   />
                 </div>
-                
+
                 <div className="settings-group-title" style={{ marginTop: "2rem" }}>
                   {t("pref_system_resources")}
                 </div>
@@ -161,12 +324,57 @@ export const PreferencesModal = ({
                       className={`settings-sub-item ${selectedNetworkId === net.id ? "active" : ""}`}
                       onClick={() => setSelectedNetworkId(net.id)}
                     >
-                      🌐 {net.name}
+                      <span style={{ color: net.state === "active" ? "#10B981" : "#EF4444", marginRight: "0.4rem" }}>●</span>
+                      {net.name}
                     </div>
                   ))}
+                  <button
+                    className="btn-save-settings"
+                    style={{ margin: "0.5rem", fontSize: "0.8rem" }}
+                    onClick={() => setShowCreateNet(true)}
+                  >
+                    + {t("net_create")}
+                  </button>
                 </div>
-                {activeNetwork && (
-                  <div className="settings-sub-details">
+                <div className="settings-sub-details">
+                  {showCreateNet ? (
+                    <div className="settings-group">
+                      <div className="settings-group-title">{t("net_create_title")}</div>
+                      <div className="form-row">
+                        <span className="form-label">{t("net_name")}</span>
+                        <input type="text" className="form-input" value={newNetName} onChange={(e) => setNewNetName(e.target.value)} placeholder="my-network" />
+                      </div>
+                      <div className="form-row">
+                        <span className="form-label">{t("net_subnet")}</span>
+                        <input type="text" className="form-input" value={newNetSubnet} onChange={(e) => setNewNetSubnet(e.target.value)} />
+                      </div>
+                      <div className="form-row">
+                        <span className="form-label">{t("net_dhcp")} (Start)</span>
+                        <input type="text" className="form-input" value={newNetDhcpStart} onChange={(e) => setNewNetDhcpStart(e.target.value)} />
+                      </div>
+                      <div className="form-row">
+                        <span className="form-label">{t("net_dhcp")} (End)</span>
+                        <input type="text" className="form-input" value={newNetDhcpEnd} onChange={(e) => setNewNetDhcpEnd(e.target.value)} />
+                      </div>
+                      <div className="form-row">
+                        <span className="form-label">{t("net_forward_mode")}</span>
+                        <select className="form-select" value={newNetForward} onChange={(e) => setNewNetForward(e.target.value)}>
+                          <option value="nat">NAT</option>
+                          <option value="bridge">Bridge</option>
+                          <option value="route">Route</option>
+                          <option value="isolated">Isolated</option>
+                        </select>
+                      </div>
+                      <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
+                        <button className="btn-save-settings" style={{ margin: 0 }} onClick={handleCreateNetwork} disabled={!newNetName.trim()}>
+                          {t("net_create")}
+                        </button>
+                        <button className="btn-save-settings" style={{ margin: 0, opacity: 0.7 }} onClick={() => setShowCreateNet(false)}>
+                          {t("btn_close")}
+                        </button>
+                      </div>
+                    </div>
+                  ) : activeNetwork ? (
                     <div className="settings-group">
                       <div className="settings-group-title">{t("net_ipv4")}</div>
                       <div className="form-row">
@@ -202,9 +410,23 @@ export const PreferencesModal = ({
                         <span className="form-label">{t("net_forwarding")}</span>
                         <input type="text" className="form-input" value={activeNetwork.forwarding} disabled />
                       </div>
+                      <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
+                        {activeNetwork.state === "active" ? (
+                          <button className="btn-save-settings" style={{ margin: 0 }} onClick={() => handleNetworkAction("stop_network", activeNetwork.name)}>
+                            {t("net_stop")}
+                          </button>
+                        ) : (
+                          <button className="btn-save-settings" style={{ margin: 0 }} onClick={() => handleNetworkAction("start_network", activeNetwork.name)}>
+                            {t("net_start")}
+                          </button>
+                        )}
+                        <button className="btn-save-settings" style={{ margin: 0, background: "#EF4444" }} onClick={() => handleDeleteNetwork(activeNetwork.name)}>
+                          {t("net_delete")}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  ) : null}
+                </div>
               </div>
             )}
 
@@ -215,61 +437,156 @@ export const PreferencesModal = ({
                     <div
                       key={pool.id}
                       className={`settings-sub-item ${selectedStorageId === pool.id ? "active" : ""}`}
-                      onClick={() => setSelectedStorageId(pool.id)}
+                      onClick={() => { setSelectedStorageId(pool.id); setShowCreatePool(false); setShowCreateVol(false); }}
                     >
-                      💾 {pool.name}
+                      <span style={{ color: pool.state === "active" ? "#10B981" : "#EF4444", marginRight: "0.4rem" }}>●</span>
+                      {pool.name}
                     </div>
                   ))}
+                  <button
+                    className="btn-save-settings"
+                    style={{ margin: "0.5rem", fontSize: "0.8rem" }}
+                    onClick={() => setShowCreatePool(true)}
+                  >
+                    + {t("store_create")}
+                  </button>
                 </div>
-                {activeStorage && (
-                  <div className="settings-sub-details">
+                <div className="settings-sub-details">
+                  {showCreatePool ? (
                     <div className="settings-group">
-                      <div className="settings-group-title">Storage Pool Detail</div>
+                      <div className="settings-group-title">{t("store_create_title")}</div>
                       <div className="form-row">
                         <span className="form-label">{t("store_pool_name")}</span>
-                        <input type="text" className="form-input" value={activeStorage.name} disabled />
+                        <input type="text" className="form-input" value={newPoolName} onChange={(e) => setNewPoolName(e.target.value)} placeholder="my-pool" />
                       </div>
                       <div className="form-row">
-                        <span className="form-label">{t("store_pool_location")}</span>
-                        <input type="text" className="form-input" value={activeStorage.location} disabled />
+                        <span className="form-label">{t("store_pool_path")}</span>
+                        <input type="text" className="form-input" value={newPoolPath} onChange={(e) => setNewPoolPath(e.target.value)} />
                       </div>
-                      <div className="form-row">
-                        <span className="form-label">{t("store_pool_size")}</span>
-                        <span className="form-value-text">
-                          {activeStorage.used_gb} GB In Use / {activeStorage.size_gb - activeStorage.used_gb} GB Free
-                        </span>
-                      </div>
-                      <div className="form-row">
-                        <span className="form-label">{t("store_pool_autostart")}</span>
-                        <input type="checkbox" className="form-checkbox" checked={activeStorage.autostart} disabled />
+                      <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
+                        <button className="btn-save-settings" style={{ margin: 0 }} onClick={handleCreatePool} disabled={!newPoolName.trim()}>
+                          {t("store_create")}
+                        </button>
+                        <button className="btn-save-settings" style={{ margin: 0, opacity: 0.7 }} onClick={() => setShowCreatePool(false)}>
+                          {t("btn_close")}
+                        </button>
                       </div>
                     </div>
+                  ) : activeStorage ? (
+                    <>
+                      <div className="settings-group">
+                        <div className="settings-group-title">Storage Pool Detail</div>
+                        <div className="form-row">
+                          <span className="form-label">{t("store_pool_name")}</span>
+                          <input type="text" className="form-input" value={activeStorage.name} disabled />
+                        </div>
+                        <div className="form-row">
+                          <span className="form-label">{t("store_pool_location")}</span>
+                          <input type="text" className="form-input" value={activeStorage.location} disabled />
+                        </div>
+                        <div className="form-row">
+                          <span className="form-label">{t("store_pool_size")}</span>
+                          <span className="form-value-text">
+                            {activeStorage.used_gb} GB In Use / {activeStorage.size_gb - activeStorage.used_gb} GB Free
+                          </span>
+                        </div>
+                        <div className="form-row">
+                          <span className="form-label">{t("store_pool_autostart")}</span>
+                          <input type="checkbox" className="form-checkbox" checked={activeStorage.autostart} disabled />
+                        </div>
+                        <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
+                          {activeStorage.state === "active" ? (
+                            <button className="btn-save-settings" style={{ margin: 0 }} onClick={() => handlePoolAction("stop_storage_pool", activeStorage.name)}>
+                              {t("store_stop")}
+                            </button>
+                          ) : (
+                            <button className="btn-save-settings" style={{ margin: 0 }} onClick={() => handlePoolAction("start_storage_pool", activeStorage.name)}>
+                              {t("store_start")}
+                            </button>
+                          )}
+                          <button className="btn-save-settings" style={{ margin: 0, background: "#EF4444" }} onClick={() => handleDeletePool(activeStorage.name)}>
+                            {t("store_delete")}
+                          </button>
+                        </div>
+                      </div>
 
-                    <div className="settings-volumes-title">{t("store_volumes")}</div>
-                    <div className="settings-table-wrapper">
-                      <table className="settings-table">
-                        <thead>
-                          <tr>
-                            <th>{t("store_volume_name")}</th>
-                            <th>{t("store_volume_size")}</th>
-                            <th>{t("store_volume_format")}</th>
-                            <th>{t("store_volume_used_by")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {activeStorage.volumes.map((vol) => (
-                            <tr key={vol.name}>
-                              <td>{vol.name}</td>
-                              <td>{vol.size}</td>
-                              <td>{vol.format}</td>
-                              <td>{vol.used_by}</td>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div className="settings-volumes-title">{t("store_volumes")}</div>
+                        {activeStorage.state === "active" && (
+                          <button
+                            className="btn-save-settings"
+                            style={{ margin: 0, fontSize: "0.75rem", padding: "0.25rem 0.75rem" }}
+                            onClick={() => setShowCreateVol(true)}
+                          >
+                            + {t("vol_create")}
+                          </button>
+                        )}
+                      </div>
+
+                      {showCreateVol && (
+                        <div className="settings-group" style={{ marginBottom: "1rem" }}>
+                          <div className="settings-group-title">{t("vol_create_title")}</div>
+                          <div className="form-row">
+                            <span className="form-label">{t("vol_name_label")}</span>
+                            <input type="text" className="form-input" value={newVolName} onChange={(e) => setNewVolName(e.target.value)} placeholder="disk.qcow2" />
+                          </div>
+                          <div className="form-row">
+                            <span className="form-label">{t("vol_size_label")}</span>
+                            <input type="number" className="form-input" value={newVolSize} onChange={(e) => setNewVolSize(e.target.value)} min="1" />
+                          </div>
+                          <div className="form-row">
+                            <span className="form-label">{t("vol_format_label")}</span>
+                            <select className="form-select" value={newVolFormat} onChange={(e) => setNewVolFormat(e.target.value)}>
+                              <option value="qcow2">qcow2</option>
+                              <option value="raw">raw</option>
+                            </select>
+                          </div>
+                          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+                            <button className="btn-save-settings" style={{ margin: 0 }} onClick={handleCreateVolume} disabled={!newVolName.trim()}>
+                              {t("vol_create")}
+                            </button>
+                            <button className="btn-save-settings" style={{ margin: 0, opacity: 0.7 }} onClick={() => setShowCreateVol(false)}>
+                              {t("btn_close")}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="settings-table-wrapper">
+                        <table className="settings-table">
+                          <thead>
+                            <tr>
+                              <th>{t("store_volume_name")}</th>
+                              <th>{t("store_volume_size")}</th>
+                              <th>{t("store_volume_format")}</th>
+                              <th>{t("store_volume_used_by")}</th>
+                              <th></th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
+                          </thead>
+                          <tbody>
+                            {activeStorage.volumes.map((vol) => (
+                              <tr key={vol.name}>
+                                <td>{vol.name}</td>
+                                <td>{vol.size}</td>
+                                <td>{vol.format}</td>
+                                <td>{vol.used_by}</td>
+                                <td>
+                                  <button
+                                    style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: "0.8rem" }}
+                                    onClick={() => handleDeleteVolume(vol.name)}
+                                    title={t("vol_delete")}
+                                  >
+                                    ✕
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
               </div>
             )}
 
@@ -308,7 +625,7 @@ export const PreferencesModal = ({
             )}
           </div>
         </div>
-        
+
         <div className="preferences-modal-header" style={{ borderTop: "1px solid rgba(255, 255, 255, 0.05)", borderBottom: "none", justifyContent: "flex-end", padding: "1rem" }}>
           <button className="btn-save-settings" style={{ margin: 0 }} onClick={() => setShowPrefModal(false)}>
             {t("btn_close")}

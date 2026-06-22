@@ -4,12 +4,16 @@ pub mod storage;
 pub mod proxy;
 pub mod domains;
 
+use std::sync::Mutex;
 use virt::connect::Connect;
+
+pub static LIBVIRT_URI: Mutex<Option<String>> = Mutex::new(None);
 
 // Public shared helpers used by sub-modules
 pub fn connect_libvirt() -> Result<Connect, String> {
-    // Try system connection first, then session connection
-    Connect::open(Some("qemu:///system"))
+    let uri = LIBVIRT_URI.lock().unwrap().clone();
+    let uri_str = uri.as_deref().unwrap_or("qemu:///system");
+    Connect::open(Some(uri_str))
         .or_else(|_| Connect::open(Some("qemu:///session")))
         .map_err(|e| format!("Failed to connect to libvirt: {}", e))
 }
@@ -55,7 +59,19 @@ pub fn run() {
             domains::update_vm_settings,
             system::get_system_resources,
             networks::list_networks,
-            storage::list_storage_pools
+            networks::start_network,
+            networks::stop_network,
+            networks::delete_network,
+            networks::create_network,
+            storage::list_storage_pools,
+            storage::start_storage_pool,
+            storage::stop_storage_pool,
+            storage::delete_storage_pool,
+            storage::create_storage_pool,
+            storage::create_volume,
+            storage::delete_volume,
+            system::set_libvirt_uri,
+            system::get_libvirt_uri
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

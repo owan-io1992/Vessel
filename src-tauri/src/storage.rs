@@ -1,4 +1,6 @@
 use serde::{Serialize, Deserialize};
+use virt::storage_pool::StoragePool;
+use virt::storage_vol::StorageVol;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct VolumeItem {
@@ -147,4 +149,90 @@ pub fn list_storage_pools() -> Result<Vec<StoragePoolItem>, String> {
     }
     
     Ok(list)
+}
+
+#[tauri::command]
+pub fn start_storage_pool(name: String) -> Result<(), String> {
+    let conn = crate::connect_libvirt()?;
+    let pool = StoragePool::lookup_by_name(&conn, &name)
+        .map_err(|e| format!("Storage pool not found: {}", e))?;
+    pool.create(0)
+        .map(|_| ())
+        .map_err(|e| format!("Failed to start storage pool: {}", e))
+}
+
+#[tauri::command]
+pub fn stop_storage_pool(name: String) -> Result<(), String> {
+    let conn = crate::connect_libvirt()?;
+    let pool = StoragePool::lookup_by_name(&conn, &name)
+        .map_err(|e| format!("Storage pool not found: {}", e))?;
+    pool.destroy()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to stop storage pool: {}", e))
+}
+
+#[tauri::command]
+pub fn delete_storage_pool(name: String) -> Result<(), String> {
+    let conn = crate::connect_libvirt()?;
+    let pool = StoragePool::lookup_by_name(&conn, &name)
+        .map_err(|e| format!("Storage pool not found: {}", e))?;
+    if pool.is_active().unwrap_or(false) {
+        let _ = pool.destroy();
+    }
+    pool.undefine()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to delete storage pool: {}", e))
+}
+
+#[tauri::command]
+pub fn create_storage_pool(name: String, path: String) -> Result<(), String> {
+    let conn = crate::connect_libvirt()?;
+
+    let xml = format!(
+        "<pool type='dir'>\n  <name>{}</name>\n  <target>\n    <path>{}</path>\n  </target>\n</pool>",
+        name, path
+    );
+
+    let pool = StoragePool::define_xml(&conn, &xml, 0)
+        .map_err(|e| format!("Failed to define storage pool: {}", e))?;
+
+    // Try to build the pool directory
+    pool.build(0).ok();
+    pool.set_autostart(true).ok();
+    pool.create(0)
+        .map(|_| ())
+        .map_err(|e| format!("Pool defined but failed to start: {}", e))
+}
+
+#[tauri::command]
+pub fn create_volume(pool_name: String, vol_name: String, size_gb: u64, format: String) -> Result<(), String> {
+    let conn = crate::connect_libvirt()?;
+    let pool = StoragePool::lookup_by_name(&conn, &pool_name)
+        .map_err(|e| format!("Storage pool not found: {}", e))?;
+
+    let size_bytes = size_gb * 1024 * 1024 * 1024;
+    let fmt = if format.is_empty() { "qcow2" } else { &format };
+
+    let xml = format!(
+        "<volume>\n  <name>{}</name>\n  <capacity>{}</capacity>\n  <target>\n    <format type='{}'/>\n  </target>\n</volume>",
+        vol_name, size_bytes, fmt
+    );
+
+    StorageVol::create_xml(&pool, &xml, 0)
+        .map(|_| ())
+        .map_err(|e| format!("Failed to create volume: {}", e))
+}
+
+#[tauri::command]
+pub fn delete_volume(pool_name: String, vol_name: String) -> Result<(), String> {
+    let conn = crate::connect_libvirt()?;
+    let pool = StoragePool::lookup_by_name(&conn, &pool_name)
+        .map_err(|e| format!("Storage pool not found: {}", e))?;
+
+    let vol = StorageVol::lookup_by_name(&pool, &vol_name)
+        .map_err(|e| format!("Volume not found: {}", e))?;
+
+    vol.delete(0)
+        .map(|_| ())
+        .map_err(|e| format!("Failed to delete volume: {}", e))
 }
