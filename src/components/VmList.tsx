@@ -250,15 +250,48 @@ export const VmList = ({
     }
   };
 
+  const filter = filterText.trim().toLowerCase();
+  const matchesFilter = (name: string) => !filter || name.toLowerCase().includes(filter);
+
+  // When filtering: flatten everything and show only matched VMs (ignore folders)
+  const isFiltering = filter.length > 0;
+  const filteredDomains = isFiltering ? domains.filter((d) => matchesFilter(d.name)) : null;
+
+  // Get currently visible VMs in their rendered order
+  const getVisibleVmNames = (): string[] => {
+    if (isFiltering) {
+      return filteredDomains ? filteredDomains.map((d) => d.name) : [];
+    }
+    const list: string[] = [];
+    topLevelOrder.forEach((itemId) => {
+      if (itemId.startsWith("folder_")) {
+        const folder = folders.find((f) => f.id === itemId);
+        if (folder && !folder.collapsed) {
+          folder.vmNames.forEach((vmName) => {
+            if (domains.some((d) => d.name === vmName)) {
+              list.push(vmName);
+            }
+          });
+        }
+      } else {
+        if (domains.some((d) => d.name === itemId)) {
+          list.push(itemId);
+        }
+      }
+    });
+    return list;
+  };
+
   // Selection handlers
   const handleItemClick = (e: React.MouseEvent, name: string) => {
     if (e.shiftKey && lastSelectedName && lastSelectedName !== name) {
-      const lastIndex = domains.findIndex((d) => d.name === lastSelectedName);
-      const currentIndex = domains.findIndex((d) => d.name === name);
+      const visibleVms = getVisibleVmNames();
+      const lastIndex = visibleVms.indexOf(lastSelectedName);
+      const currentIndex = visibleVms.indexOf(name);
       if (lastIndex !== -1 && currentIndex !== -1) {
         const start = Math.min(lastIndex, currentIndex);
         const end = Math.max(lastIndex, currentIndex);
-        const rangeNames = domains.slice(start, end + 1).map((d) => d.name);
+        const rangeNames = visibleVms.slice(start, end + 1);
         setSelectedVmNames(rangeNames);
       }
     } else if (e.ctrlKey || e.metaKey) {
@@ -286,13 +319,6 @@ export const VmList = ({
     });
     setLastSelectedName(name);
   };
-
-  const filter = filterText.trim().toLowerCase();
-  const matchesFilter = (name: string) => !filter || name.toLowerCase().includes(filter);
-
-  // When filtering: flatten everything and show only matched VMs (ignore folders)
-  const isFiltering = filter.length > 0;
-  const filteredDomains = isFiltering ? domains.filter((d) => matchesFilter(d.name)) : null;
 
   return (
     <>
