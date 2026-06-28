@@ -327,8 +327,60 @@ fn replace_attr_in_block(block: &str, tag_prefix: &str, attr: &str, new_val: &st
     block.to_string()
 }
 
+fn update_block_boot_order(block: &str, is_boot: bool) -> String {
+    let mut b = block.to_string();
+    // Remove existing <boot .../> tags inside the block
+    while let Some(boot_start) = b.find("<boot") {
+        if let Some(rel_end) = b[boot_start..].find('>') {
+            let boot_end = boot_start + rel_end + 1;
+            let mut cleaned = String::new();
+            cleaned.push_str(&b[..boot_start]);
+            cleaned.push_str(&b[boot_end..]);
+            b = cleaned;
+        } else {
+            break;
+        }
+    }
+    
+    if is_boot {
+        if let Some(close_idx) = b.rfind("</") {
+            let mut inserted = String::new();
+            inserted.push_str(&b[..close_idx]);
+            inserted.push_str("  <boot order='1'/>\n      ");
+            inserted.push_str(&b[close_idx..]);
+            b = inserted;
+        }
+    }
+    b
+}
+
+fn update_bootmenu_xml(xml: &str, enable: bool) -> String {
+    let enable_str = if enable { "yes" } else { "no" };
+    if xml.contains("<bootmenu") {
+        replace_attr_in_block(xml, "<bootmenu", "enable", enable_str)
+    } else if let Some(os_idx) = xml.find("<os") {
+        if let Some(rel_end) = xml[os_idx..].find('>') {
+            let insert_at = os_idx + rel_end + 1;
+            let mut result = String::new();
+            result.push_str(&xml[..insert_at]);
+            result.push_str(&format!("<bootmenu enable='{}'/>", enable_str));
+            result.push_str(&xml[insert_at..]);
+            result
+        } else {
+            xml.to_string()
+        }
+    } else {
+        xml.to_string()
+    }
+}
+
 // Update each interface block, matching the incoming NIC list by MAC address
-fn update_interfaces_xml(xml: &str, nics: &[NicInfo]) -> String {
+fn update_interfaces_xml(xml: &str, nics: &[NicInfo], boot_device: &str) -> String {
+    let boot_mac = if boot_device.starts_with("nic:") {
+        boot_device.strip_prefix("nic:").unwrap_or("")
+    } else {
+        ""
+    };
     map_blocks(xml, "<interface", "</interface>", |block| {
         let mac = match get_attr_in_block(block, "<mac", "address") {
             Some(m) => m,
@@ -344,12 +396,21 @@ fn update_interfaces_xml(xml: &str, nics: &[NicInfo]) -> String {
             replace_attr_in_block(block, "<source", "network", &nic.source)
         };
         b = replace_attr_in_block(&b, "<model", "type", &nic.model);
+        
+        let is_boot = !boot_mac.is_empty() && mac == boot_mac;
+        b = update_block_boot_order(&b, is_boot);
         b
     })
 }
 
 // Update/Add/Remove disk blocks, matching the incoming disk list by target dev
-fn update_disks_xml(xml: &str, disks: &[DiskInfo]) -> String {
+fn update_disks_xml(xml: &str, disks: &[DiskInfo], boot_device: &str) -> String {
+    let boot_dev_name = if boot_device.starts_with("disk:") {
+        boot_device.strip_prefix("disk:").unwrap_or("")
+    } else {
+        ""
+    };
+
     // 1. Update existing disks or remove them if not in the new list
     let updated_xml = map_blocks(xml, "<disk", "</disk>", |block| {
         let dev = match get_attr_in_block(block, "<target", "dev") {
@@ -364,6 +425,8 @@ fn update_disks_xml(xml: &str, disks: &[DiskInfo]) -> String {
                 } else if b.contains("dev=") {
                     b = replace_attr_in_block(&b, "<source", "dev", &disk.path);
                 }
+                let is_boot = !boot_dev_name.is_empty() && dev == boot_dev_name;
+                b = update_block_boot_order(&b, is_boot);
                 b
             }
             None => "".to_string(), // Return empty string to delete this disk block
@@ -376,12 +439,14 @@ fn update_disks_xml(xml: &str, disks: &[DiskInfo]) -> String {
         let search_pattern = format!("dev='{}'", disk.target_dev);
         let search_pattern_double = format!("dev=\"{}\"", disk.target_dev);
         if !updated_xml.contains(&search_pattern) && !updated_xml.contains(&search_pattern_double) {
+            let is_boot = !boot_dev_name.is_empty() && disk.target_dev == boot_dev_name;
             let disk_xml = format!(
-                "    <disk type='file' device='{}'>\n      <driver name='qemu' type='qcow2'/>\n      <source file='{}'/>\n      <target dev='{}' bus='{}'/>\n    </disk>\n",
+                "    <disk type='file' device='{}'>\n      <driver name='qemu' type='qcow2'/>\n      <source file='{}'/>\n      <target dev='{}' bus='{}'/>{}      \n    </disk>\n",
                 if disk.device.is_empty() { "disk" } else { &disk.device },
                 disk.path,
                 disk.target_dev,
-                if disk.bus.is_empty() { "virtio" } else { &disk.bus }
+                if disk.bus.is_empty() { "virtio" } else { &disk.bus },
+                if is_boot { "\n      <boot order='1'/>" } else { "" }
             );
             new_disks_xml.push_str(&disk_xml);
         }
@@ -401,10 +466,38 @@ fn update_disks_xml(xml: &str, disks: &[DiskInfo]) -> String {
 }
 
 fn update_boot_xml(xml: &str, boot_dev: &str) -> String {
-    if xml.contains("<boot ") {
-        replace_attr_in_block(xml, "<boot", "dev", boot_dev)
+    if boot_dev.starts_with("disk:") || boot_dev.starts_with("nic:") {
+        // Remove <boot dev='...'/> completely
+        let mut b = xml.to_string();
+        while let Some(boot_idx) = b.find("<boot ") {
+            if let Some(rel_end) = b[boot_idx..].find('>') {
+                let boot_end = boot_idx + rel_end + 1;
+                let mut cleaned = String::new();
+                cleaned.push_str(&b[..boot_idx]);
+                cleaned.push_str(&b[boot_end..]);
+                b = cleaned;
+            } else {
+                break;
+            }
+        }
+        b
     } else {
-        xml.to_string()
+        if xml.contains("<boot ") {
+            replace_attr_in_block(xml, "<boot", "dev", boot_dev)
+        } else if let Some(os_idx) = xml.find("<os") {
+            if let Some(rel_end) = xml[os_idx..].find('>') {
+                let insert_at = os_idx + rel_end + 1;
+                let mut result = String::new();
+                result.push_str(&xml[..insert_at]);
+                result.push_str(&format!("<boot dev='{}'/>", boot_dev));
+                result.push_str(&xml[insert_at..]);
+                result
+            } else {
+                xml.to_string()
+            }
+        } else {
+            xml.to_string()
+        }
     }
 }
 
@@ -494,6 +587,7 @@ pub fn update_vm_settings(
     max_memory: u64,
     autostart: bool,
     boot_device: String,
+    boot_menu: bool,
     graphics_type: String,
     machine: String,
     os_type: String,
@@ -567,6 +661,9 @@ pub fn update_vm_settings(
     // Modify boot device
     xml = update_boot_xml(&xml, &boot_device);
 
+    // Modify boot menu
+    xml = update_bootmenu_xml(&xml, boot_menu);
+
     // Modify machine type on the <os><type> element
     if !machine.is_empty() {
         xml = replace_attr_in_block(&xml, "<type", "machine", &machine);
@@ -579,8 +676,8 @@ pub fn update_vm_settings(
     xml = update_topology_xml(&xml, cpu_sockets, cpu_cores, cpu_threads);
 
     // Modify every disk and network interface by identity (target dev / MAC)
-    xml = update_disks_xml(&xml, &disks);
-    xml = update_interfaces_xml(&xml, &nics);
+    xml = update_disks_xml(&xml, &disks, &boot_device);
+    xml = update_interfaces_xml(&xml, &nics, &boot_device);
 
     // Redefine domain with new XML to persist configurations
     Domain::define_xml(&conn, &xml)
@@ -663,6 +760,7 @@ pub struct VmSettings {
     pub os_machine: String, // e.g. pc-q35-7.2
     pub os_type: String,    // Vessel OS family: linux / windows / other
     pub boot_device: String,
+    pub boot_menu: bool,
     pub graphics_type: String,
     pub autostart: bool,
     pub disks: Vec<DiskInfo>,
@@ -796,7 +894,34 @@ pub fn get_vm_settings(name: String) -> Result<VmSettings, String> {
         .unwrap_or_default();
     let os_type = detect_os_type(&xml);
 
-    let boot_device = get_attr_in_block(&xml, "<boot", "dev").unwrap_or_else(|| "hd".to_string());
+    let mut boot_device = get_attr_in_block(&xml, "<boot", "dev").unwrap_or_else(|| "hd".to_string());
+    for block in collect_blocks(&xml, "<disk", "</disk>") {
+        if get_attr_in_block(&block, "<boot", "order").is_some() {
+            if let Some(dev) = get_attr_in_block(&block, "<target", "dev") {
+                boot_device = format!("disk:{}", dev);
+                break;
+            }
+        }
+    }
+    if boot_device == "hd" {
+        for block in collect_blocks(&xml, "<interface", "</interface>") {
+            if get_attr_in_block(&block, "<boot", "order").is_some() {
+                if let Some(mac) = get_attr_in_block(&block, "<mac", "address") {
+                    boot_device = format!("nic:{}", mac);
+                    break;
+                }
+            }
+        }
+    }
+
+    let boot_menu = if xml.contains("<bootmenu ") || xml.contains("<bootmenu>") {
+        get_attr_in_block(&xml, "<bootmenu", "enable")
+            .map(|val| val == "yes")
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
     let graphics_type =
         get_attr_in_block(&xml, "<graphics", "type").unwrap_or_else(|| "none".to_string());
     let autostart = dom.get_autostart().unwrap_or(false);
@@ -814,6 +939,7 @@ pub fn get_vm_settings(name: String) -> Result<VmSettings, String> {
         os_machine,
         os_type,
         boot_device,
+        boot_menu,
         graphics_type,
         autostart,
         disks: parse_disks(&xml, &conn),

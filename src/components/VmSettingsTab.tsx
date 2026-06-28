@@ -159,6 +159,7 @@ export const VmSettingsTab = ({
   const [vmThreads, setVmThreads] = useState(1);
   const [vmAutostart, setVmAutostart] = useState(false);
   const [vmBootDevice, setVmBootDevice] = useState("hd");
+  const [vmBootMenu, setVmBootMenu] = useState(false);
   const [vmGraphicsType, setVmGraphicsType] = useState("spice");
   const [osLabel, setOsLabel] = useState("");
   const [osArch, setOsArch] = useState("");
@@ -176,6 +177,14 @@ export const VmSettingsTab = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const showToastMessage = (message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast((prev) => (prev && prev.message === message ? null : prev));
+    }, 3000);
+  };
 
   const maxVcpu = systemResources?.cpu_threads || 128;
 
@@ -197,6 +206,7 @@ export const VmSettingsTab = ({
 
     setVmAutostart(s.autostart);
     setVmBootDevice(s.boot_device || "hd");
+    setVmBootMenu(s.boot_menu || false);
     setVmGraphicsType(s.graphics_type || "none");
     setOsLabel(s.os_label);
     setOsArch(s.os_arch);
@@ -329,10 +339,11 @@ export const VmSettingsTab = ({
     for (const d of disks) {
       const orig = initialDisks.find((o) => o.target_dev === d.target_dev);
       if (orig && d.capacity_gb < orig.capacity_gb) {
-        alert(
+        showToastMessage(
           lang === "zh"
             ? `不支援縮小虛擬硬碟 ${d.target_dev}！當前容量: ${orig.capacity_gb} GB`
-            : `Shrinking disk ${d.target_dev} is not supported! Current capacity: ${orig.capacity_gb} GB`
+            : `Shrinking disk ${d.target_dev} is not supported! Current capacity: ${orig.capacity_gb} GB`,
+          "error"
         );
         return;
       }
@@ -348,6 +359,7 @@ export const VmSettingsTab = ({
         maxMemory: valueToKb(vmMaxMemoryVal, vmMaxMemoryUnit),
         autostart: vmAutostart,
         bootDevice: vmBootDevice,
+        bootMenu: vmBootMenu,
         graphicsType: vmGraphicsType,
         machine: osMachine,
         osType,
@@ -359,14 +371,14 @@ export const VmSettingsTab = ({
       });
       const renamed = isStopped && vmName.trim() && vmName.trim() !== selectedVm.name;
       if (!renamed) {
-        alert(lang === "zh" ? "設定變更已成功套用至虛擬機！" : "VM settings saved successfully!");
+        showToastMessage(lang === "zh" ? "設定變更已成功套用至虛擬機！" : "VM settings saved successfully!", "success");
       }
       setInitialDisks(disks);
       setDirty(false);
       if (onSaveSuccess) onSaveSuccess(renamed ? vmName.trim() : undefined);
     } catch (err: any) {
       console.error(err);
-      alert((lang === "zh" ? "儲存設定失敗：" : "Failed to save settings: ") + err.toString());
+      showToastMessage((lang === "zh" ? "儲存設定失敗：" : "Failed to save settings: ") + err.toString(), "error");
     } finally {
       setSaving(false);
     }
@@ -376,12 +388,12 @@ export const VmSettingsTab = ({
     setSaving(true);
     try {
       await invoke("save_vm_xml", { xml: xmlText });
-      alert(lang === "zh" ? "XML 已成功套用至虛擬機！" : "XML applied successfully!");
+      showToastMessage(lang === "zh" ? "XML 已成功套用至虛擬機！" : "XML applied successfully!", "success");
       setDirty(false);
       if (onSaveSuccess) onSaveSuccess();
     } catch (err: any) {
       console.error(err);
-      alert((lang === "zh" ? "套用 XML 失敗：" : "Failed to apply XML: ") + err.toString());
+      showToastMessage((lang === "zh" ? "套用 XML 失敗：" : "Failed to apply XML: ") + err.toString(), "error");
     } finally {
       setSaving(false);
     }
@@ -531,10 +543,29 @@ export const VmSettingsTab = ({
               disabled={!isStopped}
               onChange={(e) => edit(setVmBootDevice)(e.target.value)}
             >
-              <option value="hd">Hard Disk</option>
-              <option value="cdrom">CD-ROM</option>
-              <option value="network">PXE Network</option>
+              <option value="hd">{t("boot_device_hd")}</option>
+              <option value="cdrom">{t("boot_device_cdrom")}</option>
+              <option value="network">{t("boot_device_network")}</option>
+              {disks.map((d, index) => (
+                <option key={d.target_dev} value={`disk:${d.target_dev}`}>
+                  {lang === "zh" ? `磁碟 ${index + 1} (${d.target_dev})` : `Disk ${index + 1} (${d.target_dev})`}
+                </option>
+              ))}
+              {nics.map((n, index) => (
+                <option key={n.mac} value={`nic:${n.mac}`}>
+                  {lang === "zh" ? `介面卡 ${index + 1} (${n.mac})` : `Adapter ${index + 1} (${n.mac})`}
+                </option>
+              ))}
             </select>
+          </Field>
+          <Field label={t("vm_settings_bootmenu")}>
+            <input
+              type="checkbox"
+              className="form-checkbox"
+              checked={vmBootMenu}
+              disabled={!isStopped}
+              onChange={(e) => edit(setVmBootMenu)(e.target.checked)}
+            />
           </Field>
         </>
       )}
@@ -783,6 +814,12 @@ export const VmSettingsTab = ({
 
   return (
     <div className="vm-settings-panel">
+      {toast && (
+        <div className={`settings-toast ${toast.type}`}>
+          <span className="toast-icon">{toast.type === "success" ? "✓" : "✕"}</span>
+          <span>{toast.message}</span>
+        </div>
+      )}
       <div className="vm-settings-header">
         <span className="details-name">{t("tab_settings")}</span>
         <div className="vm-settings-toggle-group">

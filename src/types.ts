@@ -37,6 +37,7 @@ export interface VmSettings {
   os_machine: string;
   os_type: string;
   boot_device: string;
+  boot_menu: boolean;
   graphics_type: string;
   autostart: boolean;
   disks: DiskInfo[];
