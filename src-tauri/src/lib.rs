@@ -63,6 +63,8 @@ pub fn run() {
             domains::create_vm,
             domains::delete_vm,
             domains::check_guest_agent,
+            domains::debug_memory_stats,
+            domains::qemu_agent_command,
             storage::list_iso_files,
             system::get_system_resources,
             networks::list_networks,

@@ -639,6 +639,7 @@ export const VmSettingsTab = ({
       {disks.length === 0 && <div className="settings-empty">{t("vm_disk_empty")}</div>}
       {disks.map((disk, i) => {
         const orig = initialDisks.find((o) => o.target_dev === disk.target_dev);
+        const isCdrom = disk.device === "cdrom";
         return (
           <div className="device-card" key={disk.target_dev || i}>
             <div className="device-card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -696,7 +697,7 @@ export const VmSettingsTab = ({
                   <Field label={t("vm_disk_pool")}>
                     <select
                       className="form-select"
-                      disabled={!isStopped}
+                      disabled={!isStopped && !isCdrom}
                       value={activePool.name}
                       onChange={(e) => {
                         const newPool = storagePools.find(p => p.name === e.target.value);
@@ -717,7 +718,7 @@ export const VmSettingsTab = ({
                   <Field label={t("vm_disk_volume")}>
                     <select
                       className="form-select"
-                      disabled={!isStopped}
+                      disabled={!isStopped && !isCdrom}
                       value={isExistingVol ? filename : "__custom__"}
                       onChange={(e) => {
                         if (e.target.value === "__custom__") {
@@ -752,7 +753,7 @@ export const VmSettingsTab = ({
                         type="text"
                         className="form-input"
                         value={filename}
-                        disabled={!isStopped}
+                        disabled={!isStopped && !isCdrom}
                         placeholder="e.g. volume-name.qcow2"
                         onChange={(e) => {
                           const newPath = activePool.location + "/" + e.target.value;

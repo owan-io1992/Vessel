@@ -55,22 +55,34 @@ pub fn list_domains() -> Result<Vec<DomainItem>, String> {
         }
 
         if state == 1 || state == 3 {
+            // Enable balloon memory stats collection (no-op if already set)
+            let _ = dom.set_memory_stats_period(2, 0);
             if let Ok(stats) = dom.memory_stats(0) {
-                let mut unused = 0;
-                let mut available = 0;
+                let mut unused_balloon = 0u64; // tag 4: balloon driver free (Linux)
+                let mut usable_agent = 0u64;   // tag 8: guest agent free (Windows+agent)
+                let mut available = 0u64;      // tag 5: total mem from guest OS
+                let mut balloon_size = 0u64;   // tag 6: actual balloon size
+                let mut rss = 0u64;            // tag 7: host RSS (fallback for Windows without balloon)
                 for stat in stats {
-                    if stat.tag == 4 || stat.tag == 8 {
-                        unused = stat.val;
-                    } else if stat.tag == 5 {
-                        available = stat.val;
-                    } else if stat.tag == 6 {
-                        if available == 0 {
-                            available = stat.val;
-                        }
+                    match stat.tag {
+                        4 => unused_balloon = stat.val,
+                        5 => available = stat.val,
+                        6 => balloon_size = stat.val,
+                        7 => rss = stat.val,
+                        8 => usable_agent = stat.val,
+                        _ => {}
                     }
                 }
-                if available > 0 && available >= unused {
-                    memory = available - unused;
+                // Prefer guest-agent-reported free (tag 8), fall back to balloon driver (tag 4)
+                let free = if usable_agent > 0 { usable_agent } else { unused_balloon };
+                // Prefer guest OS total (tag 5), fall back to balloon size (tag 6)
+                let total = if available > 0 { available } else { balloon_size };
+
+                if free > 0 && total > 0 && total >= free {
+                    memory = total - free;
+                } else if rss > 0 {
+                    // Fallback for Windows without virtio-balloon driver
+                    memory = rss;
                 }
             }
         }
@@ -629,6 +641,60 @@ fn update_topology_xml(xml: &str, sockets: u32, cores: u32, threads: u32) -> Str
     }
 }
 
+// Change the ISO media for any cdrom devices on a running domain. libvirt supports
+// updating cdrom source live via virDomainUpdateDeviceFlags without powering off.
+fn apply_cdroms_live(dom: &Domain, disks: &[DiskInfo]) -> Result<(), String> {
+    let live_xml = dom.get_xml_desc(0)
+        .map_err(|e| format!("Failed to read live XML: {}", e))?;
+    for block in collect_blocks(&live_xml, "<disk", "</disk>") {
+        // Only handle cdrom devices
+        if get_attr_in_block(&block, "<disk", "device").as_deref() != Some("cdrom") {
+            continue;
+        }
+        let dev = match get_attr_in_block(&block, "<target", "dev") {
+            Some(d) => d,
+            None => continue,
+        };
+        let disk = match disks.iter().find(|d| d.target_dev == dev) {
+            Some(d) => d,
+            None => continue,
+        };
+        // Build the updated block: set or clear the <source file='...'/>
+        let edited = if disk.path.is_empty() {
+            // Eject: remove <source .../> entirely
+            let mut b = block.to_string();
+            if let Some(src_start) = b.find("<source") {
+                if let Some(rel_end) = b[src_start..].find("/>") {
+                    let end = src_start + rel_end + 2;
+                    let mut cleaned = String::new();
+                    cleaned.push_str(&b[..src_start]);
+                    cleaned.push_str(&b[end..]);
+                    b = cleaned;
+                }
+            }
+            b
+        } else if block.contains("<source") {
+            replace_attr_in_block(&block, "<source", "file", &disk.path)
+        } else {
+            // No <source> yet — insert one before <target>
+            if let Some(tgt_idx) = block.find("<target") {
+                let mut b = String::new();
+                b.push_str(&block[..tgt_idx]);
+                b.push_str(&format!("<source file='{}'/>\n      ", disk.path));
+                b.push_str(&block[tgt_idx..]);
+                b
+            } else {
+                block.to_string()
+            }
+        };
+        if edited != block {
+            dom.update_device_flags(&edited, AFFECT_LIVE_CONFIG)
+                .map_err(|e| format!("Failed to update cdrom media live: {}", e))?;
+        }
+    }
+    Ok(())
+}
+
 // Apply the source/model edits of the NIC list to a running domain, one device at
 // a time, so changes take effect live (and persist to config). Whitelisted because
 // libvirt supports hot-updating interfaces while other devices cannot change live.
@@ -690,6 +756,7 @@ pub fn update_vm_settings(
     let is_active = dom.is_active().unwrap_or(false);
     if is_active {
         apply_nics_live(&dom, &nics)?;
+        apply_cdroms_live(&dom, &disks)?;
     }
 
     // --- VM is stopped: full edit allowed below ---
@@ -790,17 +857,41 @@ pub fn update_vm_settings(
     Ok(())
 }
 
-/// Check whether the QEMU guest agent is reachable in the running VM.
-/// Returns true when the agent responds to guest-ping, false otherwise.
+/// Send an arbitrary QEMU guest agent command and return the raw response.
+#[tauri::command]
+pub fn qemu_agent_command(name: String, cmd: String) -> Result<String, String> {
+    let conn = crate::connect_libvirt()?;
+    let dom = Domain::lookup_by_name(&conn, &name)
+        .map_err(|e| format!("VM not found: {}", e))?;
+    dom.qemu_agent_command(&cmd, 10, 0)
+        .map_err(|e| format!("Agent command failed: {}", e))
+}
+
+/// Return raw memory stats tags and values for debugging.
+#[tauri::command]
+pub fn debug_memory_stats(name: String) -> Result<Vec<(i32, u64)>, String> {
+    let conn = crate::connect_libvirt()?;
+    let dom = Domain::lookup_by_name(&conn, &name)
+        .map_err(|e| format!("VM not found: {}", e))?;
+    let stats = dom.memory_stats(0)
+        .map_err(|e| format!("Failed to get memory stats: {}", e))?;
+    Ok(stats.iter().map(|s| (s.tag as i32, s.val)).collect())
+}
+
+/// Check whether the QEMU guest agent is actively running in the VM.
+/// Sends guest-ping with a generous timeout; retries once on failure.
 #[tauri::command]
 pub fn check_guest_agent(name: String) -> Result<bool, String> {
     let conn = crate::connect_libvirt()?;
     let dom = Domain::lookup_by_name(&conn, &name)
         .map_err(|e| format!("VM not found: {}", e))?;
-    match dom.qemu_agent_command(r#"{"execute":"guest-ping"}"#, 3, 0) {
-        Ok(_) => Ok(true),
-        Err(_) => Ok(false),
+
+    for _ in 0..2 {
+        if dom.qemu_agent_command(r#"{"execute":"guest-ping"}"#, 10, 0).is_ok() {
+            return Ok(true);
+        }
     }
+    Ok(false)
 }
 
 /// Return the raw persistent XML for the XML editing mode
@@ -1131,6 +1222,9 @@ pub fn create_vm(
     </video>
     <input type='tablet' bus='usb'/>
     <input type='keyboard' bus='usb'/>
+    <channel type='unix'>
+      <target type='virtio' name='org.qemu.guest_agent.0'/>
+    </channel>
     <channel type='spicevmc'>
       <target type='virtio' name='com.redhat.spice.0'/>
     </channel>

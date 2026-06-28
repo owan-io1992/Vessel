@@ -175,10 +175,10 @@ function App() {
             const cpuDiff = vm.cpu_time - prev.cpuTime;
             const timeDiff = now - prev.timestamp;
             if (timeDiff > 0 && cpuDiff >= 0) {
-              // cpu_time is total ns across all vCPUs; wall time in ms * 1e6 → ns
-              // Dividing cpuDiff by (wallTime_ns * vcpus) would give per-vCPU avg,
-              // but guest OS reports total utilisation, so we skip the vcpus divisor.
-              const percentage = (cpuDiff / (timeDiff * 1000000)) * 100;
+              // cpu_time is total ns summed across all vCPUs.
+              // Divide by (wall_ns * vcpu_count) to get 0-100% matching guest OS task manager.
+              const wallNs = timeDiff * 1000000;
+              const percentage = (cpuDiff / (wallNs * vm.vcpu_count)) * 100;
               cpuPercent = Math.min(Math.max(percentage, 0), 100);
             }
           }
@@ -376,12 +376,14 @@ function App() {
     }
   }, [selectedVmNames]);
 
-  // Check guest agent availability whenever selected VM or its state changes
+  // Track selected VM's state to avoid re-running guest agent check on every domain refresh
+  const selectedVmState = domains.find((d) => d.name === selectedVmNames[0])?.state;
+
+  // Check guest agent when selected VM changes, its running state changes, or user switches to status tab
   useEffect(() => {
     const selectedVmName = selectedVmNames[0];
-    if (!selectedVmName) return;
-    const vm = domains.find((d) => d.name === selectedVmName);
-    if (vm?.state !== 1) {
+    if (!selectedVmName || activeTab !== "status") return;
+    if (selectedVmState !== 1) {
       setGuestAgentAvailable((prev) => ({ ...prev, [selectedVmName]: false }));
       return;
     }
@@ -392,7 +394,7 @@ function App() {
       .catch(() => {
         setGuestAgentAvailable((prev) => ({ ...prev, [selectedVmName]: false }));
       });
-  }, [selectedVmNames, domains]);
+  }, [selectedVmNames, selectedVmState, activeTab]);
 
   useEffect(() => {
     const selectedVmName = selectedVmNames[0];
