@@ -831,15 +831,15 @@ pub fn update_vm_settings(
     Domain::define_xml(&conn, &xml)
         .map_err(|e| format!("Failed to save VM configuration XML: {}", e))?;
 
-    // Persist the OS family in Vessel metadata (after redefine, which replaces config)
+    // Persist the OS family in VirtManager-Flash metadata (after redefine, which replaces config)
     if !os_type.is_empty() {
         let dom = Domain::lookup_by_name(&conn, &name)
             .map_err(|e| format!("VM not found: {}", e))?;
         dom.set_metadata(
             METADATA_ELEMENT,
-            Some(&format!("<vessel:os>{}</vessel:os>", os_type)),
-            Some("vessel"),
-            Some(VESSEL_OS_NS),
+            Some(&format!("<virtmanager_flash:os>{}</virtmanager_flash:os>", os_type)),
+            Some("virtmanager_flash"),
+            Some(VIRTMANAGER_FLASH_OS_NS),
             AFFECT_CONFIG,
         )
         .map_err(|e| format!("Failed to set OS metadata: {}", e))?;
@@ -943,7 +943,7 @@ pub struct VmSettings {
     pub os_label: String,   // friendly guest OS (from libosinfo metadata) or empty
     pub os_arch: String,    // e.g. x86_64
     pub os_machine: String, // e.g. pc-q35-7.2
-    pub os_type: String,    // Vessel OS family: linux / windows / other
+    pub os_type: String,    // VirtManager-Flash OS family: linux / windows / other
     pub boot_device: String,
     pub boot_menu: bool,
     pub graphics_type: String,
@@ -952,8 +952,8 @@ pub struct VmSettings {
     pub nics: Vec<NicInfo>,
 }
 
-// Vessel-owned metadata namespace for tagging a VM's OS family
-const VESSEL_OS_NS: &str = "https://vessel.app/xmlns/os/1.0";
+// VirtManager-Flash-owned metadata namespace for tagging a VM's OS family
+const VIRTMANAGER_FLASH_OS_NS: &str = "https://virtmanager-flash.app/xmlns/os/1.0";
 // VIR_DOMAIN_METADATA_ELEMENT
 const METADATA_ELEMENT: i32 = 2;
 // VIR_DOMAIN_AFFECT_CONFIG
@@ -961,9 +961,9 @@ const AFFECT_CONFIG: u32 = 2;
 // VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG
 const AFFECT_LIVE_CONFIG: u32 = 3;
 
-// Determine the OS family: prefer the Vessel metadata, else infer from libosinfo
+// Determine the OS family: prefer the VirtManager-Flash metadata, else infer from libosinfo
 fn detect_os_type(xml: &str) -> String {
-    if let Some(v) = get_tag_content(xml, "vessel:os") {
+    if let Some(v) = get_tag_content(xml, "virtmanager_flash:os") {
         let v = v.trim().to_lowercase();
         if !v.is_empty() {
             return v;

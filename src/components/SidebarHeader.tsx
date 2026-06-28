@@ -1,4 +1,4 @@
-import React from "react";
+import logoPng from "../assets/LOGO.png";
 import { TranslationKey } from "../translations";
 
 interface SidebarHeaderProps {
@@ -39,11 +39,7 @@ export const SidebarHeader = ({
       <div className="sidebar-header">
         <div className="brand-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div className="brand">
-            <span className="logo-icon">🚢</span>
-            <div>
-              <h1>Vessel</h1>
-              <p className="subtitle">{t("brand_subtitle")}</p>
-            </div>
+            <img src={logoPng} alt="Logo" style={{ height: "5.5rem", width: "auto", objectFit: "contain" }} />
           </div>
           <div style={{ display: "flex", gap: "0.4rem" }}>
             <button

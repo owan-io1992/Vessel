@@ -40,11 +40,11 @@ function App() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; vmName: string } | null>(null);
   
   const [theme, setTheme] = useState<"dark" | "light">(() => {
-    return (localStorage.getItem("vessel-theme") as "dark" | "light") || "dark";
+    return (localStorage.getItem("virtmanager-flash-theme") as "dark" | "light") || "dark";
   });
 
   const [lang, setLang] = useState<"zh" | "en">(() => {
-    return (localStorage.getItem("vessel-lang") as "zh" | "en") || "zh";
+    return (localStorage.getItem("virtmanager-flash-lang") as "zh" | "en") || "zh";
   });
 
   const t = (key: TranslationKey, replaceMap?: Record<string, string | number>) => {
@@ -58,12 +58,12 @@ function App() {
   };
 
   const [folders, setFolders] = useState<Folder[]>(() => {
-    const saved = localStorage.getItem("vessel-folders");
+    const saved = localStorage.getItem("virtmanager-flash-folders");
     return saved ? JSON.parse(saved) : [];
   });
 
   const [topLevelOrder, setTopLevelOrder] = useState<string[]>(() => {
-    const saved = localStorage.getItem("vessel-top-level-order");
+    const saved = localStorage.getItem("virtmanager-flash-top-level-order");
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -83,19 +83,19 @@ function App() {
 
   // Sync state changes with localStorage
   useEffect(() => {
-    localStorage.setItem("vessel-theme", theme);
+    localStorage.setItem("virtmanager-flash-theme", theme);
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem("vessel-lang", lang);
+    localStorage.setItem("virtmanager-flash-lang", lang);
   }, [lang]);
 
   useEffect(() => {
-    localStorage.setItem("vessel-folders", JSON.stringify(folders));
+    localStorage.setItem("virtmanager-flash-folders", JSON.stringify(folders));
   }, [folders]);
 
   useEffect(() => {
-    localStorage.setItem("vessel-top-level-order", JSON.stringify(topLevelOrder));
+    localStorage.setItem("virtmanager-flash-top-level-order", JSON.stringify(topLevelOrder));
   }, [topLevelOrder]);
 
   // Tabs & Console States
@@ -332,7 +332,7 @@ function App() {
         const appWindow = getCurrentWindow();
         
         // Restore size
-        const savedSize = localStorage.getItem("vessel-window-size");
+        const savedSize = localStorage.getItem("virtmanager-flash-window-size");
         if (savedSize) {
           const { width, height } = JSON.parse(savedSize);
           await appWindow.setSize(new LogicalSize(width, height));
@@ -343,7 +343,7 @@ function App() {
           const size = await appWindow.innerSize();
           const factor = await appWindow.scaleFactor();
           const logical = size.toLogical(factor);
-          localStorage.setItem("vessel-window-size", JSON.stringify({
+          localStorage.setItem("virtmanager-flash-window-size", JSON.stringify({
             width: logical.width,
             height: logical.height
           }));

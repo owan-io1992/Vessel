@@ -1,4 +1,8 @@
-# Vessel 🚢
+# VirtManager-Flash
+
+<p align="center">
+  <img src="src/assets/LOGO.png" alt="VirtManager-Flash Logo" width="220" />
+</p>
 
 > A modern, lightweight, and blazing-fast desktop application designed to replace **virt-manager** for managing **KVM** and **LXC**, powered by the **Tauri** framework.
 
@@ -6,7 +10,7 @@
 
 ## 🌟 Introduction
 
-**Vessel** is a next-generation virtualization management tool. Traditional tools like `virt-manager` are powerful but rely on legacy desktop technologies and can feel clunky. Vessel bridges the gap by combining the raw performance and security of Rust with a premium, modern, and fluid user interface built with web technologies, all packaged seamlessly using Tauri.
+**VirtManager-Flash** is a next-generation virtualization management tool. Traditional tools like `virt-manager` are powerful but rely on legacy desktop technologies and can feel clunky. VirtManager-Flash bridges the gap by combining the raw performance and security of Rust with a premium, modern, and fluid user interface built with web technologies, all packaged seamlessly using Tauri.
 
 ---
 
@@ -32,7 +36,7 @@
 
 ### Prerequisites
 
-To build and run Vessel locally, you need the following dependencies installed on your system:
+To build and run VirtManager-Flash locally, you need the following dependencies installed on your system:
 
 #### Rust & Tauri System Dependencies
 ```bash
