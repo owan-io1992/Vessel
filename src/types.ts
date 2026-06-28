@@ -42,6 +42,8 @@ export interface VmSettings {
   autostart: boolean;
   disks: DiskInfo[];
   nics: NicInfo[];
+  secure_boot: boolean;
+  tpm: boolean;
 }
 
 export interface Folder {

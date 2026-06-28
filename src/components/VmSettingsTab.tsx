@@ -164,6 +164,8 @@ export const VmSettingsTab = ({
   const [disks, setDisks] = useState<DiskInfo[]>([]);
   const [initialDisks, setInitialDisks] = useState<DiskInfo[]>([]);
   const [nics, setNics] = useState<NicInfo[]>([]);
+  const [secureBoot, setSecureBoot] = useState(false);
+  const [tpm, setTpm] = useState(false);
 
   // XML editor state
   const [xmlText, setXmlText] = useState("");
@@ -211,6 +213,8 @@ export const VmSettingsTab = ({
     setDisks(s.disks);
     setInitialDisks(s.disks);
     setNics(s.nics);
+    setSecureBoot(s.secure_boot || false);
+    setTpm(s.tpm || false);
     setDirty(false);
   };
 
@@ -384,6 +388,8 @@ export const VmSettingsTab = ({
         cpuThreads: topologyEnabled ? vmThreads : 0,
         disks,
         nics,
+        secureBoot,
+        tpm,
       });
       const renamed = isStopped && vmName.trim() && vmName.trim() !== selectedVm.name;
       if (!renamed) {
@@ -450,6 +456,24 @@ export const VmSettingsTab = ({
           checked={vmAutostart}
           disabled={!canEdit("autostart")}
           onChange={(e) => edit(setVmAutostart)(e.target.checked)}
+        />
+      </Field>
+      <Field label={t("wizard_secure_boot")} hint={t("wizard_secure_boot_hint")}>
+        <input
+          type="checkbox"
+          className="form-checkbox"
+          checked={secureBoot}
+          disabled={!canEdit("secure_boot")}
+          onChange={(e) => edit(setSecureBoot)(e.target.checked)}
+        />
+      </Field>
+      <Field label={t("wizard_tpm")} hint={t("wizard_tpm_hint")}>
+        <input
+          type="checkbox"
+          className="form-checkbox"
+          checked={tpm}
+          disabled={!canEdit("tpm")}
+          onChange={(e) => edit(setTpm)(e.target.checked)}
         />
       </Field>
     </div>

@@ -36,6 +36,8 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
   const [vcpu, setVcpu] = useState(2);
   const [memVal, setMemVal] = useState(4);
   const [memUnit, setMemUnit] = useState<MemUnit>("GB");
+  const [secureBoot, setSecureBoot] = useState(false);
+  const [tpm, setTpm] = useState(false);
 
   // Step 2
   const [diskSizeGb, setDiskSizeGb] = useState(40);
@@ -59,6 +61,8 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
     setVcpu(2);
     setMemVal(4);
     setMemUnit("GB");
+    setSecureBoot(false);
+    setTpm(false);
     setDiskSizeGb(40);
     setStoragePool(activePools.length > 0 ? activePools[0].name : "");
     setSelectedIso("");
@@ -114,6 +118,8 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
         diskSizeGb,
         storagePoolName: storagePool,
         isoPath: selectedIso,
+        secureBoot,
+        tpm,
       });
       onCreated();
       onClose();
@@ -225,6 +231,42 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
                       <option value="TB">TB</option>
                     </select>
                   </div>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-label-group">
+                  <span className="form-label">{t("wizard_secure_boot")}</span>
+                  <span className="form-hint">{t("wizard_secure_boot_hint")}</span>
+                </div>
+                <div className="form-control" style={{ display: "flex", alignItems: "center" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", color: "var(--text-color)" }}>
+                    <input
+                      type="checkbox"
+                      checked={secureBoot}
+                      onChange={(e) => setSecureBoot(e.target.checked)}
+                      style={{ width: "16px", height: "16px", accentColor: "var(--primary-color)" }}
+                    />
+                    <span>{t("wizard_secure_boot")}</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-label-group">
+                  <span className="form-label">{t("wizard_tpm")}</span>
+                  <span className="form-hint">{t("wizard_tpm_hint")}</span>
+                </div>
+                <div className="form-control" style={{ display: "flex", alignItems: "center" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", color: "var(--text-color)" }}>
+                    <input
+                      type="checkbox"
+                      checked={tpm}
+                      onChange={(e) => setTpm(e.target.checked)}
+                      style={{ width: "16px", height: "16px", accentColor: "var(--primary-color)" }}
+                    />
+                    <span>{t("wizard_tpm")}</span>
+                  </label>
                 </div>
               </div>
             </div>
@@ -368,6 +410,14 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
                   <span className="wizard-summary-val">
                     {selectedIso ? isoList.find((i) => i.path === selectedIso)?.name ?? selectedIso : "（無）"}
                   </span>
+                </div>
+                <div className="wizard-summary-row">
+                  <span>Secure Boot</span>
+                  <span className="wizard-summary-val">{secureBoot ? "啟用 (Enabled)" : "停用 (Disabled)"}</span>
+                </div>
+                <div className="wizard-summary-row">
+                  <span>TPM 2.0</span>
+                  <span className="wizard-summary-val">{tpm ? "啟用 (Enabled)" : "停用 (Disabled)"}</span>
                 </div>
               </div>
             </div>

@@ -570,6 +570,7 @@ function App() {
   const canShutdown = selectedDoms.some((d) => d.state === 1); // some running
   const canForceStop = selectedDoms.some((d) => d.state === 1 || d.state === 3); // some running/paused
   const canReset = selectedDoms.some((d) => d.state === 1 || d.state === 3); // some running/paused
+  const canDelete = selectedDoms.length > 0 && selectedDoms.every((d) => d.state !== 1 && d.state !== 3);
 
   return (
     <div className={`app-layout ${theme}-theme`}>
@@ -750,6 +751,7 @@ function App() {
         canShutdown={canShutdown}
         canForceStop={canForceStop}
         canReset={canReset}
+        canDelete={canDelete}
         selectedVmNames={selectedVmNames}
         t={t}
         handleBatchAction={handleBatchAction}

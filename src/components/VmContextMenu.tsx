@@ -14,6 +14,7 @@ interface VmContextMenuProps {
   canShutdown: boolean;
   canForceStop: boolean;
   canReset: boolean;
+  canDelete: boolean;
   selectedVmNames: string[];
   t: (key: TranslationKey, replaceMap?: Record<string, string | number>) => string;
   handleBatchAction: (action: string) => Promise<void>;
@@ -32,6 +33,7 @@ export const VmContextMenu = ({
   canShutdown,
   canForceStop,
   canReset,
+  canDelete,
   selectedVmNames,
   t,
   handleBatchAction,
@@ -152,10 +154,11 @@ export const VmContextMenu = ({
       <div className="context-menu-divider"></div>
       <button
         className="context-menu-item"
-        style={{ color: "#EF4444" }}
+        style={canDelete ? { color: "#EF4444" } : undefined}
         onClick={() => { setDeleteConfirm(true); setDeleteStorage(false); }}
+        disabled={!canDelete}
       >
-        <span className="menu-icon" style={{ color: "#EF4444" }}>🗑</span> {t("ctx_delete")}
+        <span className="menu-icon" style={{ color: canDelete ? "#EF4444" : "var(--text-muted)" }}>🗑</span> {t("ctx_delete")}
       </button>
 
       <div className="context-menu-divider"></div>

@@ -178,10 +178,10 @@ pub fn delete_vm(name: String, delete_storage: bool) -> Result<(), String> {
     let dom = Domain::lookup_by_name(&conn, &name)
         .map_err(|e| format!("VM not found: {}", e))?;
 
-    // Stop the VM if running
+    // Deletion is restricted to powered-off VMs
     let state = dom.get_state().map(|(s, _)| s).unwrap_or(0);
-    if state == 1 /* VIR_DOMAIN_RUNNING */ {
-        dom.destroy().map_err(|e| format!("Failed to stop VM: {}", e))?;
+    if state == 1 /* VIR_DOMAIN_RUNNING */ || state == 3 /* VIR_DOMAIN_PAUSED */ {
+        return Err("Cannot delete VM while it is running or paused. Please power it off first.".to_string());
     }
 
     if delete_storage {
@@ -199,14 +199,18 @@ pub fn delete_vm(name: String, delete_storage: bool) -> Result<(), String> {
             }
             search = &search[src_idx + 14..];
         }
-        dom.undefine().map_err(|e| format!("Failed to undefine VM: {}", e))?;
+        if dom.undefine_flags(4).is_err() {
+            dom.undefine().map_err(|e| format!("Failed to undefine VM: {}", e))?;
+        }
         for path in paths {
             if let Ok(vol) = StorageVol::lookup_by_path(&conn, &path) {
                 let _ = vol.delete(0);
             }
         }
     } else {
-        dom.undefine().map_err(|e| format!("Failed to undefine VM: {}", e))?;
+        if dom.undefine_flags(4).is_err() {
+            dom.undefine().map_err(|e| format!("Failed to undefine VM: {}", e))?;
+        }
     }
 
     Ok(())
@@ -641,6 +645,73 @@ fn update_topology_xml(xml: &str, sockets: u32, cores: u32, threads: u32) -> Str
     }
 }
 
+fn update_secure_boot_xml(xml: &str, enable: bool) -> String {
+    let mut new_xml = xml.to_string();
+    if enable {
+        // Ensure <os> tag has firmware='efi' attribute
+        if !new_xml.contains("firmware=") {
+            if let Some(idx) = new_xml.find("<os>") {
+                new_xml.replace_range(idx..idx + 4, "<os firmware='efi'>");
+            } else if let Some(idx) = new_xml.find("<os ") {
+                new_xml.insert_str(idx + 4, "firmware='efi' ");
+            }
+        }
+        // Ensure <firmware> feature block exists inside <os>
+        if !new_xml.contains("<firmware>") {
+            if let Some(type_idx) = new_xml.find("<type ") {
+                if let Some(end_type_idx) = new_xml[type_idx..].find("</type>") {
+                    let insert_idx = type_idx + end_type_idx + 7;
+                    new_xml.insert_str(insert_idx, "\n    <firmware>\n      <feature enabled='yes' name='secure-boot'/>\n    </firmware>");
+                }
+            }
+        }
+        // Ensure <smm state='on'/> is inside <features>
+        if !new_xml.contains("<smm ") && !new_xml.contains("<smm>") {
+            if let Some(features_idx) = new_xml.find("<features>") {
+                new_xml.insert_str(features_idx + 10, "\n    <smm state='on'/>");
+            }
+        }
+    } else {
+        // Disable secure boot: remove firmware attribute from <os>
+        new_xml = new_xml.replace(" firmware='efi'", "");
+        new_xml = new_xml.replace(" firmware=\"efi\"", "");
+        // Remove <firmware> block
+        if let Some(start_firmware) = new_xml.find("<firmware>") {
+            if let Some(end_firmware) = new_xml[start_firmware..].find("</firmware>") {
+                let delete_end = start_firmware + end_firmware + 11;
+                new_xml.drain(start_firmware..delete_end);
+            }
+        }
+        // Remove <smm> block
+        if let Some(start_smm) = new_xml.find("<smm") {
+            if let Some(end_smm) = new_xml[start_smm..].find("/>") {
+                let delete_end = start_smm + end_smm + 2;
+                new_xml.drain(start_smm..delete_end);
+            }
+        }
+    }
+    new_xml
+}
+
+fn update_tpm_xml(xml: &str, enable: bool) -> String {
+    let mut new_xml = xml.to_string();
+    if enable {
+        if !new_xml.contains("<tpm") {
+            if let Some(devices_end) = new_xml.find("</devices>") {
+                new_xml.insert_str(devices_end, "    <tpm model='tpm-tis'>\n      <backend type='emulator' version='2.0'/>\n    </tpm>\n  ");
+            }
+        }
+    } else {
+        if let Some(start_tpm) = new_xml.find("<tpm") {
+            if let Some(end_tpm) = new_xml[start_tpm..].find("</tpm>") {
+                let delete_end = start_tpm + end_tpm + 6;
+                new_xml.drain(start_tpm..delete_end);
+            }
+        }
+    }
+    new_xml
+}
+
 // Change the ISO media for any cdrom devices on a running domain. libvirt supports
 // updating cdrom source live via virDomainUpdateDeviceFlags without powering off.
 fn apply_cdroms_live(dom: &Domain, disks: &[DiskInfo]) -> Result<(), String> {
@@ -742,6 +813,8 @@ pub fn update_vm_settings(
     cpu_threads: u32,
     disks: Vec<DiskInfo>,
     nics: Vec<NicInfo>,
+    secure_boot: bool,
+    tpm: bool,
 ) -> Result<(), String> {
     let conn = crate::connect_libvirt()?;
     let dom = Domain::lookup_by_name(&conn, &name)
@@ -826,6 +899,10 @@ pub fn update_vm_settings(
     // Modify every disk and network interface by identity (target dev / MAC)
     xml = update_disks_xml(&xml, &disks, &boot_device);
     xml = update_interfaces_xml(&xml, &nics, &boot_device);
+
+    // Modify Secure Boot and TPM
+    xml = update_secure_boot_xml(&xml, secure_boot);
+    xml = update_tpm_xml(&xml, tpm);
 
     // Redefine domain with new XML to persist configurations
     Domain::define_xml(&conn, &xml)
@@ -950,6 +1027,8 @@ pub struct VmSettings {
     pub autostart: bool,
     pub disks: Vec<DiskInfo>,
     pub nics: Vec<NicInfo>,
+    pub secure_boot: bool,
+    pub tpm: bool,
 }
 
 // VirtManager-Flash-owned metadata namespace for tagging a VM's OS family
@@ -1110,6 +1189,8 @@ pub fn get_vm_settings(name: String) -> Result<VmSettings, String> {
     let graphics_type =
         get_attr_in_block(&xml, "<graphics", "type").unwrap_or_else(|| "none".to_string());
     let autostart = dom.get_autostart().unwrap_or(false);
+    let secure_boot = xml.contains("secure-boot");
+    let tpm = xml.contains("<tpm");
 
     Ok(VmSettings {
         name,
@@ -1129,6 +1210,8 @@ pub fn get_vm_settings(name: String) -> Result<VmSettings, String> {
         autostart,
         disks: parse_disks(&xml, &conn),
         nics: parse_nics(&xml),
+        secure_boot,
+        tpm,
     })
 }
 
@@ -1140,6 +1223,8 @@ pub fn create_vm(
     disk_size_gb: u64,
     storage_pool_name: String,
     iso_path: String,
+    secure_boot: bool,
+    tpm: bool,
 ) -> Result<(), String> {
     let conn = crate::connect_libvirt()?;
 
@@ -1177,19 +1262,43 @@ pub fn create_vm(
     };
     let disk_boot_order = if iso_path.is_empty() { 1 } else { 2 };
 
+    let os_firmware_attr = if secure_boot {
+        " firmware='efi'"
+    } else {
+        ""
+    };
+
+    let firmware_block = if secure_boot {
+        "\n    <firmware>\n      <feature enabled='yes' name='secure-boot'/>\n    </firmware>"
+    } else {
+        ""
+    };
+
+    let smm_block = if secure_boot {
+        "\n    <smm state='on'/>"
+    } else {
+        ""
+    };
+
+    let tpm_block = if tpm {
+        "\n    <tpm model='tpm-tis'>\n      <backend type='emulator' version='2.0'/>\n    </tpm>"
+    } else {
+        ""
+    };
+
     let domain_xml = format!(
         r#"<domain type='kvm'>
   <name>{name}</name>
   <memory unit='KiB'>{memory_kb}</memory>
   <currentMemory unit='KiB'>{memory_kb}</currentMemory>
   <vcpu placement='static'>{vcpu}</vcpu>
-  <os>
-    <type arch='x86_64' machine='q35'>hvm</type>
+  <os{os_firmware_attr}>
+    <type arch='x86_64' machine='q35'>hvm</type>{firmware_block}
     <bootmenu enable='no'/>
   </os>
   <features>
     <acpi/>
-    <apic/>
+    <apic/>{smm_block}
   </features>
   <cpu mode='host-passthrough' check='none' migratable='on'/>
   <clock offset='utc'>
@@ -1227,7 +1336,7 @@ pub fn create_vm(
     </channel>
     <channel type='spicevmc'>
       <target type='virtio' name='com.redhat.spice.0'/>
-    </channel>
+    </channel>{tpm_block}
     <memballoon model='virtio'/>
     <rng model='virtio'>
       <backend model='random'>/dev/urandom</backend>
@@ -1240,6 +1349,10 @@ pub fn create_vm(
         disk_path = disk_path,
         cdrom_block = cdrom_block,
         disk_boot_order = disk_boot_order,
+        os_firmware_attr = os_firmware_attr,
+        firmware_block = firmware_block,
+        smm_block = smm_block,
+        tpm_block = tpm_block,
     );
 
     Domain::define_xml(&conn, &domain_xml)
