@@ -45,6 +45,7 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
   const [isoList, setIsoList] = useState<IsoFile[]>([]);
   const [isoLoading, setIsoLoading] = useState(false);
   const [selectedIso, setSelectedIso] = useState("");
+  const [isoPool, setIsoPool] = useState("");
 
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -61,6 +62,7 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
     setDiskSizeGb(40);
     setStoragePool(activePools.length > 0 ? activePools[0].name : "");
     setSelectedIso("");
+    setIsoPool("");
     setError(null);
     setIsoList([]);
   }, [show]);
@@ -69,7 +71,10 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
     if (step === 3) {
       setIsoLoading(true);
       invoke<IsoFile[]>("list_iso_files")
-        .then((list) => setIsoList(list))
+        .then((list) => {
+          setIsoList(list);
+          if (!isoPool && activePools.length > 0) setIsoPool(activePools[0].name);
+        })
         .catch(() => setIsoList([]))
         .finally(() => setIsoLoading(false));
     }
@@ -134,13 +139,22 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
 
         {/* Step indicator */}
         <div className="wizard-steps">
-          {stepLabels.map((label, i) => (
-            <div key={i} className={`wizard-step-item ${step === i + 1 ? "active" : step > i + 1 ? "done" : ""}`}>
-              <div className="wizard-step-circle">{step > i + 1 ? "✓" : i + 1}</div>
-              <span className="wizard-step-label">{label}</span>
-              {i < STEP_COUNT - 1 && <div className="wizard-step-line" />}
-            </div>
-          ))}
+          {stepLabels.map((label, i) => {
+            const isDone = step > i + 1;
+            const isActive = step === i + 1;
+            return (
+              <div
+                key={i}
+                className={`wizard-step-item ${isActive ? "active" : isDone ? "done" : ""}`}
+                onClick={() => { if (isDone) { setError(null); setStep(i + 1); } }}
+                style={isDone ? { cursor: "pointer" } : undefined}
+              >
+                <div className="wizard-step-circle">{isDone ? "✓" : i + 1}</div>
+                <span className="wizard-step-label">{label}</span>
+                {i < STEP_COUNT - 1 && <div className="wizard-step-line" />}
+              </div>
+            );
+          })}
         </div>
 
         {/* Body */}
@@ -281,6 +295,26 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
             <div className="wizard-fields">
               <div className="form-row">
                 <div className="form-label-group">
+                  <span className="form-label">{t("wizard_storage_pool")}</span>
+                  <span className="form-hint">{t("wizard_storage_pool_hint")}</span>
+                </div>
+                <div className="form-control">
+                  <select
+                    className="form-select"
+                    value={isoPool}
+                    onChange={(e) => { setIsoPool(e.target.value); setSelectedIso(""); }}
+                  >
+                    {activePools.map((p) => (
+                      <option key={p.id} value={p.name}>
+                        {p.name} — {p.location}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-label-group">
                   <span className="form-label">{t("wizard_iso")}</span>
                   <span className="form-hint">{t("wizard_iso_hint")}</span>
                 </div>
@@ -294,17 +328,19 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
                       onChange={(e) => setSelectedIso(e.target.value)}
                     >
                       <option value="">{t("wizard_iso_none")}</option>
-                      {isoList.map((iso) => (
-                        <option key={iso.path} value={iso.path}>
-                          {iso.name}{iso.pool_name ? ` (${iso.pool_name})` : ""}
-                        </option>
-                      ))}
+                      {isoList
+                        .filter((iso) => !isoPool || iso.pool_name === isoPool)
+                        .map((iso) => (
+                          <option key={iso.path} value={iso.path}>
+                            {iso.name}
+                          </option>
+                        ))}
                     </select>
                   )}
                 </div>
               </div>
 
-              {isoList.length === 0 && !isoLoading && (
+              {isoList.filter((iso) => !isoPool || iso.pool_name === isoPool).length === 0 && !isoLoading && (
                 <div className="wizard-iso-empty">{t("wizard_iso_empty")}</div>
               )}
 
@@ -332,14 +368,6 @@ export const CreateVmWizard = ({ show, onClose, storagePools, t, onCreated }: Cr
                   <span className="wizard-summary-val">
                     {selectedIso ? isoList.find((i) => i.path === selectedIso)?.name ?? selectedIso : "（無）"}
                   </span>
-                </div>
-                <div className="wizard-summary-row">
-                  <span>顯示</span>
-                  <span className="wizard-summary-val">SPICE + QXL</span>
-                </div>
-                <div className="wizard-summary-row">
-                  <span>輸入裝置</span>
-                  <span className="wizard-summary-val">USB Tablet + Keyboard</span>
                 </div>
               </div>
             </div>

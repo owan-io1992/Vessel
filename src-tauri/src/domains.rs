@@ -161,6 +161,46 @@ pub fn reset_domain(name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn delete_vm(name: String, delete_storage: bool) -> Result<(), String> {
+    let conn = crate::connect_libvirt()?;
+    let dom = Domain::lookup_by_name(&conn, &name)
+        .map_err(|e| format!("VM not found: {}", e))?;
+
+    // Stop the VM if running
+    let state = dom.get_state().map(|(s, _)| s).unwrap_or(0);
+    if state == 1 /* VIR_DOMAIN_RUNNING */ {
+        dom.destroy().map_err(|e| format!("Failed to stop VM: {}", e))?;
+    }
+
+    if delete_storage {
+        // Collect disk paths before undefining
+        let xml = dom.get_xml_desc(0).unwrap_or_default();
+        let mut paths: Vec<String> = Vec::new();
+        let mut search = xml.as_str();
+        while let Some(src_idx) = search.find("<source file='") {
+            let rest = &search[src_idx + 14..];
+            if let Some(end) = rest.find('\'') {
+                let path = &rest[..end];
+                if path.ends_with(".qcow2") || path.ends_with(".img") || path.ends_with(".raw") {
+                    paths.push(path.to_string());
+                }
+            }
+            search = &search[src_idx + 14..];
+        }
+        dom.undefine().map_err(|e| format!("Failed to undefine VM: {}", e))?;
+        for path in paths {
+            if let Ok(vol) = StorageVol::lookup_by_path(&conn, &path) {
+                let _ = vol.delete(0);
+            }
+        }
+    } else {
+        dom.undefine().map_err(|e| format!("Failed to undefine VM: {}", e))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 pub fn open_viewer(name: String) -> Result<(), String> {
     std::process::Command::new("virt-viewer")
         .arg("-c")
@@ -1031,6 +1071,7 @@ pub fn create_vm(
             iso_path
         )
     };
+    let disk_boot_order = if iso_path.is_empty() { 1 } else { 2 };
 
     let domain_xml = format!(
         r#"<domain type='kvm'>
@@ -1040,8 +1081,6 @@ pub fn create_vm(
   <vcpu placement='static'>{vcpu}</vcpu>
   <os>
     <type arch='x86_64' machine='q35'>hvm</type>
-    <boot dev='cdrom'/>
-    <boot dev='hd'/>
     <bootmenu enable='no'/>
   </os>
   <features>
@@ -1063,7 +1102,7 @@ pub fn create_vm(
       <driver name='qemu' type='qcow2'/>
       <source file='{disk_path}'/>
       <target dev='vda' bus='virtio'/>
-      <boot order='2'/>
+      <boot order='{disk_boot_order}'/>
     </disk>
 {cdrom_block}
     <interface type='network'>
@@ -1093,6 +1132,7 @@ pub fn create_vm(
         vcpu = vcpu,
         disk_path = disk_path,
         cdrom_block = cdrom_block,
+        disk_boot_order = disk_boot_order,
     );
 
     Domain::define_xml(&conn, &domain_xml)

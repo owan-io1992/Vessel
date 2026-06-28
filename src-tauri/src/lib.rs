@@ -61,6 +61,7 @@ pub fn run() {
             domains::get_vm_xml,
             domains::save_vm_xml,
             domains::create_vm,
+            domains::delete_vm,
             storage::list_iso_files,
             system::get_system_resources,
             networks::list_networks,

@@ -1,3 +1,5 @@
+import { useRef, useEffect, useState, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Folder } from "../types";
 import { TranslationKey } from "../translations";
 
@@ -16,6 +18,7 @@ interface VmContextMenuProps {
   t: (key: TranslationKey, replaceMap?: Record<string, string | number>) => string;
   handleBatchAction: (action: string) => Promise<void>;
   moveSelectedVmsToFolder: (folderId: string | null) => void;
+  onDeleted: () => void;
 }
 
 export const VmContextMenu = ({
@@ -33,13 +36,45 @@ export const VmContextMenu = ({
   t,
   handleBatchAction,
   moveSelectedVmsToFolder,
+  onDeleted,
 }: VmContextMenuProps) => {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: contextMenu?.x ?? 0, y: contextMenu?.y ?? 0 });
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteStorage, setDeleteStorage] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = useCallback(async () => {
+    if (!contextMenu) return;
+    setDeleting(true);
+    try {
+      await invoke("delete_vm", { name: contextMenu.vmName, deleteStorage });
+      setContextMenu(null);
+      onDeleted();
+    } finally {
+      setDeleting(false);
+      setDeleteConfirm(false);
+    }
+  }, [contextMenu, deleteStorage, onDeleted]);
+
+  useEffect(() => {
+    if (!contextMenu || !menuRef.current) return;
+    const el = menuRef.current;
+    const { innerWidth, innerHeight } = window;
+    const rect = el.getBoundingClientRect();
+    const x = contextMenu.x + rect.width > innerWidth ? contextMenu.x - rect.width : contextMenu.x;
+    const y = contextMenu.y + rect.height > innerHeight ? contextMenu.y - rect.height : contextMenu.y;
+    setPos({ x, y });
+  }, [contextMenu]);
+
   if (!contextMenu) return null;
 
   return (
-    <div 
+    <>
+    <div
+      ref={menuRef}
       className="context-menu"
-      style={{ top: contextMenu.y, left: contextMenu.x }}
+      style={{ top: pos.y, left: pos.x }}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="context-menu-title">{contextMenu.vmName}</div>
@@ -115,6 +150,15 @@ export const VmContextMenu = ({
       </button>
       
       <div className="context-menu-divider"></div>
+      <button
+        className="context-menu-item"
+        style={{ color: "#EF4444" }}
+        onClick={() => { setDeleteConfirm(true); setDeleteStorage(false); }}
+      >
+        <span className="menu-icon" style={{ color: "#EF4444" }}>🗑</span> {t("ctx_delete")}
+      </button>
+
+      <div className="context-menu-divider"></div>
       {folders.map((f) => {
         const hasVm = f.vmNames.includes(contextMenu.vmName);
         return (
@@ -139,5 +183,38 @@ export const VmContextMenu = ({
         </button>
       )}
     </div>
+
+    {deleteConfirm && contextMenu && (
+      <div className="wizard-overlay" onClick={() => setDeleteConfirm(false)}>
+        <div className="wizard-modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+          <div className="wizard-header">
+            <h2 className="wizard-title" style={{ color: "#EF4444" }}>{t("ctx_delete")}</h2>
+          </div>
+          <div className="wizard-body">
+            <p style={{ marginBottom: "1rem" }}>{t("ctx_delete_confirm", { name: contextMenu.vmName })}</p>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={deleteStorage}
+                onChange={(e) => setDeleteStorage(e.target.checked)}
+              />
+              {t("ctx_delete_storage")}
+            </label>
+          </div>
+          <div className="wizard-footer">
+            <button className="btn-secondary" onClick={() => setDeleteConfirm(false)}>{t("btn_close")}</button>
+            <button
+              className="btn-primary"
+              style={{ background: "#EF4444", borderColor: "#EF4444" }}
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? "..." : t("ctx_delete")}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };

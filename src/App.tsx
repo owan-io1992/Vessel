@@ -713,6 +713,7 @@ function App() {
         t={t}
         handleBatchAction={handleBatchAction}
         moveSelectedVmsToFolder={moveSelectedVmsToFolder}
+        onDeleted={() => { setSelectedVmNames([]); fetchDomains(true); }}
       />
 
       {/* App Preferences Modal */}
