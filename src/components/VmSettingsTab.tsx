@@ -156,6 +156,7 @@ export const VmSettingsTab = ({
   const [vmBootDevice, setVmBootDevice] = useState("hd");
   const [vmBootMenu, setVmBootMenu] = useState(false);
   const [vmGraphicsType, setVmGraphicsType] = useState("spice");
+  const [vmVideoModel, setVmVideoModel] = useState("qxl");
   const [_osLabel, setOsLabel] = useState("");
   const [osArch, setOsArch] = useState("");
   const [osMachine, setOsMachine] = useState("");
@@ -205,6 +206,7 @@ export const VmSettingsTab = ({
     setVmBootDevice(s.boot_device || "hd");
     setVmBootMenu(s.boot_menu || false);
     setVmGraphicsType(s.graphics_type || "none");
+    setVmVideoModel(s.video_model || "qxl");
     setOsLabel(s.os_label);
     setOsArch(s.os_arch);
     setOsMachine(s.os_machine);
@@ -381,6 +383,7 @@ export const VmSettingsTab = ({
         bootDevice: vmBootDevice,
         bootMenu: vmBootMenu,
         graphicsType: vmGraphicsType,
+        videoModel: vmVideoModel,
         machine: osMachine,
         osType,
         cpuSockets: topologyEnabled ? vmSockets : 0,
@@ -593,6 +596,22 @@ export const VmSettingsTab = ({
               disabled={!isStopped}
               onChange={(e) => edit(setVmBootMenu)(e.target.checked)}
             />
+          </Field>
+          <Field label={t("vm_settings_video")} hint={t("vm_h_video")}>
+            <select
+              className="form-select"
+              style={{ width: "240px", height: "38px", boxSizing: "border-box", paddingTop: 0, paddingBottom: 0 }}
+              value={vmVideoModel}
+              disabled={!isStopped}
+              onChange={(e) => edit(setVmVideoModel)(e.target.value)}
+            >
+              <option value="virtio">Virtio</option>
+              <option value="qxl">QXL</option>
+              <option value="vga">VGA</option>
+              <option value="bochs">Bochs</option>
+              <option value="ramfb">Ramfb</option>
+              <option value="none">None</option>
+            </select>
           </Field>
         </>
       )}

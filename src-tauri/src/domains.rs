@@ -626,6 +626,16 @@ fn update_graphics_xml(xml: &str, graphics_type: &str) -> String {
     }
 }
 
+fn update_video_xml(xml: &str, video_model: &str) -> String {
+    if xml.contains("<video") {
+        map_blocks(xml, "<video", "</video>", |block| {
+            replace_attr_in_block(block, "<model", "type", video_model)
+        })
+    } else {
+        xml.to_string()
+    }
+}
+
 fn update_topology_xml(xml: &str, sockets: u32, cores: u32, threads: u32) -> String {
     if sockets == 0 || cores == 0 || threads == 0 {
         return xml.to_string();
@@ -827,6 +837,7 @@ pub fn update_vm_settings(
     boot_device: String,
     boot_menu: bool,
     graphics_type: String,
+    video_model: String,
     machine: String,
     os_type: String,
     cpu_sockets: u32,
@@ -954,6 +965,9 @@ pub fn update_vm_settings(
     xml = update_disks_xml(&xml, &disks, &boot_device);
     xml = update_interfaces_xml(&xml, &nics, &boot_device);
 
+    // Modify video model
+    xml = update_video_xml(&xml, &video_model);
+
     // Modify Secure Boot and TPM
     xml = update_secure_boot_xml(&xml, secure_boot);
     xml = update_tpm_xml(&xml, tpm);
@@ -1078,6 +1092,7 @@ pub struct VmSettings {
     pub boot_device: String,
     pub boot_menu: bool,
     pub graphics_type: String,
+    pub video_model: String,
     pub autostart: bool,
     pub disks: Vec<DiskInfo>,
     pub nics: Vec<NicInfo>,
@@ -1261,6 +1276,10 @@ pub fn get_vm_settings(name: String) -> Result<VmSettings, String> {
         boot_device,
         boot_menu,
         graphics_type,
+        video_model: collect_blocks(&xml, "<video", "</video>")
+            .first()
+            .and_then(|block| get_attr_in_block(block, "<model", "type"))
+            .unwrap_or_else(|| "qxl".to_string()),
         autostart,
         disks: parse_disks(&xml, &conn),
         nics: parse_nics(&xml),

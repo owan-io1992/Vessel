@@ -39,6 +39,7 @@ export interface VmSettings {
   boot_device: string;
   boot_menu: boolean;
   graphics_type: string;
+  video_model: string;
   autostart: boolean;
   disks: DiskInfo[];
   nics: NicInfo[];
