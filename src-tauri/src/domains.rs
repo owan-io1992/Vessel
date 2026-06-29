@@ -515,12 +515,28 @@ fn update_disks_xml(xml: &str, disks: &[DiskInfo], boot_device: &str) -> String 
         };
         match disks.iter().find(|d| d.target_dev == dev) {
             Some(disk) => {
+                let is_cdrom = disk.device == "cdrom";
                 let mut b = replace_attr_in_block(block, "<target", "bus", &disk.bus);
+                b = replace_attr_in_block(&b, "<disk", "device", if is_cdrom { "cdrom" } else { "disk" });
                 if b.contains("file=") {
                     b = replace_attr_in_block(&b, "<source", "file", &disk.path);
                 } else if b.contains("dev=") {
                     b = replace_attr_in_block(&b, "<source", "dev", &disk.path);
                 }
+                
+                // Update driver type based on device type (cdrom uses raw, disk uses qcow2)
+                let expected_driver_type = if is_cdrom { "raw" } else { "qcow2" };
+                b = replace_attr_in_block(&b, "<driver", "type", expected_driver_type);
+                
+                // Ensure <readonly/> is present for cdrom and absent for disk
+                if is_cdrom {
+                    if !b.contains("<readonly/>") && !b.contains("<readonly />") {
+                        b = b.replace("</disk>", "  <readonly/>\n    </disk>");
+                    }
+                } else {
+                    b = b.replace("<readonly/>", "").replace("<readonly />", "");
+                }
+                
                 let is_boot = !boot_dev_name.is_empty() && dev == boot_dev_name;
                 b = update_block_boot_order(&b, is_boot);
                 b
@@ -536,12 +552,17 @@ fn update_disks_xml(xml: &str, disks: &[DiskInfo], boot_device: &str) -> String 
         let search_pattern_double = format!("dev=\"{}\"", disk.target_dev);
         if !updated_xml.contains(&search_pattern) && !updated_xml.contains(&search_pattern_double) {
             let is_boot = !boot_dev_name.is_empty() && disk.target_dev == boot_dev_name;
+            let is_cdrom = disk.device == "cdrom";
+            let driver_type = if is_cdrom { "raw" } else { "qcow2" };
+            let readonly_tag = if is_cdrom { "\n      <readonly/>" } else { "" };
             let disk_xml = format!(
-                "    <disk type='file' device='{}'>\n      <driver name='qemu' type='qcow2'/>\n      <source file='{}'/>\n      <target dev='{}' bus='{}'/>{}      \n    </disk>\n",
+                "    <disk type='file' device='{}'>\n      <driver name='qemu' type='{}'/>\n      <source file='{}'/>\n      <target dev='{}' bus='{}'/>{}{}\n    </disk>\n",
                 if disk.device.is_empty() { "disk" } else { &disk.device },
+                driver_type,
                 disk.path,
                 disk.target_dev,
                 if disk.bus.is_empty() { "virtio" } else { &disk.bus },
+                readonly_tag,
                 if is_boot { "\n      <boot order='1'/>" } else { "" }
             );
             new_disks_xml.push_str(&disk_xml);
@@ -836,8 +857,8 @@ pub fn update_vm_settings(
     if !is_active {
         // Resize each backing volume that grew, and create new ones if they don't exist
         for disk in &disks {
-            if disk.path.is_empty() {
-                continue;
+            if disk.path.is_empty() || disk.device == "cdrom" {
+                continue; // CD-ROMs are read-only media and cannot/should not be resized or created as qcow2 files
             }
             if std::path::Path::new(&disk.path).exists() {
                 if let Ok(vol) = StorageVol::lookup_by_path(&conn, &disk.path) {
@@ -850,19 +871,52 @@ pub fn update_vm_settings(
                     }
                 }
             } else {
-                // Create a new qcow2 image file using qemu-img
-                let size_str = format!("{}G", disk.capacity_gb);
-                let output = std::process::Command::new("qemu-img")
-                    .arg("create")
-                    .arg("-f")
-                    .arg("qcow2")
-                    .arg(&disk.path)
-                    .arg(&size_str)
-                    .output()
-                    .map_err(|e| format!("Failed to run qemu-img: {}", e))?;
-                if !output.status.success() {
-                    let err_msg = String::from_utf8_lossy(&output.stderr);
-                    return Err(format!("Failed to create disk image via qemu-img: {}", err_msg));
+                // Try to create the volume through libvirt storage pool first to avoid permission issues
+                let mut created_via_libvirt = false;
+                if let Ok(pools) = conn.list_all_storage_pools(0) {
+                    for pool in pools {
+                        if let Ok(pool_xml) = pool.get_xml_desc(0) {
+                            let mut pool_path = String::new();
+                            if let Some(target_idx) = pool_xml.find("<path>") {
+                                let path_block = &pool_xml[target_idx + 6..];
+                                if let Some(end_idx) = path_block.find("</path>") {
+                                    pool_path = path_block[..end_idx].to_string();
+                                }
+                            }
+                            if !pool_path.is_empty() && disk.path.starts_with(&pool_path) {
+                                let filename = disk.path.strip_prefix(&pool_path)
+                                    .unwrap_or(&disk.path)
+                                    .trim_start_matches('/');
+                                
+                                let size_bytes = disk.capacity_gb * 1024 * 1024 * 1024;
+                                let vol_xml = format!(
+                                    "<volume>\n  <name>{}</name>\n  <capacity>{}</capacity>\n  <target>\n    <format type='qcow2'/>\n  </target>\n</volume>",
+                                    filename, size_bytes
+                                );
+                                if StorageVol::create_xml(&pool, &vol_xml, 0).is_ok() {
+                                    created_via_libvirt = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !created_via_libvirt {
+                    // Fallback to running qemu-img locally
+                    let size_str = format!("{}G", disk.capacity_gb);
+                    let output = std::process::Command::new("qemu-img")
+                        .arg("create")
+                        .arg("-f")
+                        .arg("qcow2")
+                        .arg(&disk.path)
+                        .arg(&size_str)
+                        .output()
+                        .map_err(|e| format!("Failed to run qemu-img: {}", e))?;
+                    if !output.status.success() {
+                        let err_msg = String::from_utf8_lossy(&output.stderr);
+                        return Err(format!("Failed to create disk image via qemu-img: {}", err_msg));
+                    }
                 }
             }
         }

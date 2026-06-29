@@ -101,3 +101,32 @@ export interface SnapshotItem {
   is_current: boolean;
 }
 
+export const parseSizeToGb = (sizeStr: string): number => {
+  if (!sizeStr) return 0;
+  const match = sizeStr.trim().match(/^([\d.]+)\s*([a-zA-Z]+)$/);
+  if (!match) return 0;
+  const val = parseFloat(match[1]);
+  const unit = match[2].toLowerCase();
+  if (unit === "gib" || unit === "gb") {
+    return val;
+  } else if (unit === "mib" || unit === "mb") {
+    return val / 1024;
+  } else if (unit === "kib" || unit === "kb") {
+    return val / (1024 * 1024);
+  } else if (unit === "b") {
+    return val / (1024 * 1024 * 1024);
+  }
+  return val;
+};
+
+export const parseSizeAndUnit = (sizeStr: string): { value: number; unit: string } => {
+  if (!sizeStr) return { value: 0, unit: "GB" };
+  const match = sizeStr.trim().match(/^([\d.]+)\s*([a-zA-Z]+)$/);
+  if (!match) return { value: 0, unit: "GB" };
+  const val = parseFloat(match[1]);
+  const unit = match[2];
+  return { value: val, unit };
+};
+
+
+

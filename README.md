@@ -13,7 +13,7 @@
 <a name="english"></a>
 ## English
 
-> A modern, lightweight, and blazing-fast desktop application designed to replace **virt-manager** for managing **KVM**, powered by the **Tauri** framework.
+> A modern, lightweight, and blazing-fast KVM virtualization desktop application, serving as a modern and lightweight alternative/complement to **virt-manager**, powered by the **Tauri** framework.
 
 ### 🌟 Introduction
 
@@ -88,7 +88,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 <a name="繁體中文"></a>
 ## 繁體中文
 
-> 基於 **Tauri** 框架打造，旨在替代 **virt-manager** 的現代化、輕量且極速的 **KVM** 虛擬化管理桌面應用程式。
+> 基於 **Tauri** 框架打造，作為 **virt-manager** 現代化與輕量化互補/替代選擇的 **KVM** 虛擬化管理桌面應用程式。
 
 ### 🌟 簡介
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { DomainItem, NetworkItem, SystemResources, VmSettings, DiskInfo, NicInfo, StoragePoolItem } from "../types";
+import { DomainItem, NetworkItem, SystemResources, VmSettings, DiskInfo, NicInfo, StoragePoolItem, parseSizeToGb, parseSizeAndUnit } from "../types";
 import { TranslationKey } from "../translations";
 
 interface VmSettingsTabProps {
@@ -664,8 +664,14 @@ export const VmSettingsTab = ({
       {disks.map((disk, i) => {
         const orig = initialDisks.find((o) => o.target_dev === disk.target_dev);
         const isCdrom = disk.device === "cdrom";
+        const activePool = storagePools.find(p => disk.path.startsWith(p.location)) || storagePools[0] || { name: "", location: "/var/lib/libvirt/images", volumes: [] };
+        const filename = disk.path.startsWith(activePool.location)
+          ? disk.path.substring(activePool.location.length).replace(/^\//, "")
+          : disk.path.substring(disk.path.lastIndexOf("/") + 1);
+        const isExistingVol = activePool.volumes.some(v => v.name === filename);
+
         return (
-          <div className="device-card" key={disk.target_dev || i}>
+          <div className="device-card" key={`disk-${i}`}>
             <div className="device-card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 {t("vm_disk")} {i + 1}
@@ -701,7 +707,20 @@ export const VmSettingsTab = ({
                     className="form-select"
                     value={disk.device}
                     disabled={!isStopped}
-                    onChange={(e) => updateDisk(i, { device: e.target.value })}
+                    onChange={(e) => {
+                      const newDevice = e.target.value;
+                      const isNewCdrom = newDevice === "cdrom";
+                      const filteredVols = activePool.volumes.filter(v => {
+                        const isIso = v.name.toLowerCase().endsWith(".iso");
+                        return isNewCdrom ? isIso : !isIso;
+                      });
+                      const defaultVol = filteredVols[0];
+                      const newPath = defaultVol 
+                        ? activePool.location + "/" + defaultVol.name 
+                        : "";
+                      const newBus = isNewCdrom ? "sata" : "virtio";
+                      updateDisk(i, { device: newDevice, path: newPath, bus: newBus });
+                    }}
                   >
                     <option value="disk">disk</option>
                     <option value="cdrom">cdrom</option>
@@ -710,95 +729,98 @@ export const VmSettingsTab = ({
               </>
             )}
 
+            <Field label={t("vm_disk_pool")}>
+              <select
+                className="form-select"
+                disabled={!isStopped && !isCdrom}
+                value={activePool.name}
+                onChange={(e) => {
+                  const newPool = storagePools.find(p => p.name === e.target.value);
+                  if (newPool) {
+                    const newPath = newPool.location + "/" + (filename || `${selectedVm.name}-data-${i}.qcow2`);
+                    updateDisk(i, { path: newPath });
+                  }
+                }}
+              >
+                {storagePools.map(p => (
+                  <option key={p.id} value={p.name}>
+                    {p.name} ({p.location})
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label={t("vm_disk_volume")}>
+              <select
+                className="form-select"
+                disabled={!isStopped && !isCdrom}
+                value={isExistingVol ? filename : "__custom__"}
+                onChange={(e) => {
+                  if (e.target.value === "__custom__") {
+                    // Keep filename as-is, let user type it
+                  } else {
+                    const newPath = activePool.location + "/" + e.target.value;
+                    const selectedVolObj = activePool.volumes.find(v => v.name === e.target.value);
+                    if (selectedVolObj) {
+                      const rawGb = parseSizeToGb(selectedVolObj.size);
+                      const sizeGb = rawGb > 0 ? Math.max(1, Math.round(rawGb)) : disk.capacity_gb;
+                      updateDisk(i, { path: newPath, capacity_gb: sizeGb });
+                    } else {
+                      updateDisk(i, { path: newPath });
+                    }
+                  }
+                }}
+              >
+                {activePool.volumes
+                  .filter(v => {
+                    const isIso = v.name.toLowerCase().endsWith(".iso");
+                    return isCdrom ? isIso : !isIso;
+                  })
+                  .map(v => (
+                    <option key={v.name} value={v.name}>
+                      {v.name} ({v.size})
+                    </option>
+                  ))
+                }
+                <option value="__custom__">
+                  {lang === "zh" ? "< 自訂 / 新增磁碟區 >" : "< Custom / New Volume >"}
+                </option>
+              </select>
+            </Field>
+
+            {(!isExistingVol || filename === "" || disk.path === "") && (
+              <Field label={t("vm_custom_filename")}>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={filename}
+                  disabled={!isStopped && !isCdrom}
+                  placeholder="e.g. volume-name.qcow2"
+                  onChange={(e) => {
+                    const newPath = activePool.location + "/" + e.target.value;
+                    updateDisk(i, { path: newPath });
+                  }}
+                />
+              </Field>
+            )}
+
             {(() => {
-              const activePool = storagePools.find(p => disk.path.startsWith(p.location)) || storagePools[0] || { name: "", location: "/var/lib/libvirt/images", volumes: [] };
-              const filename = disk.path.startsWith(activePool.location)
-                ? disk.path.substring(activePool.location.length).replace(/^\//, "")
-                : disk.path.substring(disk.path.lastIndexOf("/") + 1);
-              const isExistingVol = activePool.volumes.some(v => v.name === filename);
+              const volSizeInfo = isExistingVol 
+                ? parseSizeAndUnit(activePool.volumes.find(v => v.name === filename)?.size || "") 
+                : { value: disk.capacity_gb, unit: "GB" };
               return (
-                <>
-                  <Field label={t("vm_disk_pool")}>
-                    <select
-                      className="form-select"
-                      disabled={!isStopped && !isCdrom}
-                      value={activePool.name}
-                      onChange={(e) => {
-                        const newPool = storagePools.find(p => p.name === e.target.value);
-                        if (newPool) {
-                          const newPath = newPool.location + "/" + (filename || `${selectedVm.name}-data-${i}.qcow2`);
-                          updateDisk(i, { path: newPath });
-                        }
-                      }}
-                    >
-                      {storagePools.map(p => (
-                        <option key={p.id} value={p.name}>
-                          {p.name} ({p.location})
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-
-                  <Field label={t("vm_disk_volume")}>
-                    <select
-                      className="form-select"
-                      disabled={!isStopped && !isCdrom}
-                      value={isExistingVol ? filename : "__custom__"}
-                      onChange={(e) => {
-                        if (e.target.value === "__custom__") {
-                          // Keep filename as-is, let user type it
-                        } else {
-                          const newPath = activePool.location + "/" + e.target.value;
-                          const selectedVolObj = activePool.volumes.find(v => v.name === e.target.value);
-                          if (selectedVolObj) {
-                            const matched = selectedVolObj.size.match(/(\d+)/);
-                            const sizeGb = matched ? Number(matched[1]) : disk.capacity_gb;
-                            updateDisk(i, { path: newPath, capacity_gb: sizeGb });
-                          } else {
-                            updateDisk(i, { path: newPath });
-                          }
-                        }
-                      }}
-                    >
-                      {activePool.volumes.map(v => (
-                        <option key={v.name} value={v.name}>
-                          {v.name} ({v.size})
-                        </option>
-                      ))}
-                      <option value="__custom__">
-                        {lang === "zh" ? "< 自訂 / 新增磁碟區 >" : "< Custom / New Volume >"}
-                      </option>
-                    </select>
-                  </Field>
-
-                  {(!isExistingVol || filename === "" || disk.path === "") && (
-                    <Field label={t("vm_custom_filename")}>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={filename}
-                        disabled={!isStopped && !isCdrom}
-                        placeholder="e.g. volume-name.qcow2"
-                        onChange={(e) => {
-                          const newPath = activePool.location + "/" + e.target.value;
-                          updateDisk(i, { path: newPath });
-                        }}
-                      />
-                    </Field>
-                  )}
-                </>
+                <Field label={`${t("vm_settings_disk_size")} (${volSizeInfo.unit})`} hint={t("vm_h_disk_size")}>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={isCdrom ? volSizeInfo.value : disk.capacity_gb}
+                    min={Math.max(1, orig?.capacity_gb ?? 1)}
+                    disabled={!isStopped || isCdrom}
+                    onChange={(e) => updateDisk(i, { capacity_gb: Number(e.target.value) })}
+                  />
+                </Field>
               );
             })()}
-            <Field label={`${t("vm_settings_disk_size")} (GB)`} hint={t("vm_h_disk_size")}>
-              <input
-                type="number"
-                className="form-input"
-                value={disk.capacity_gb}
-                min={Math.max(1, orig?.capacity_gb ?? 1)}
-                disabled={!isStopped}
-                onChange={(e) => updateDisk(i, { capacity_gb: Number(e.target.value) })}
-              />
-            </Field>
             <Field label={t("vm_f_disk_bus")} hint={t("vm_h_disk_bus")}>
               <select
                 className="form-select"
@@ -945,6 +967,12 @@ export const VmSettingsTab = ({
 
   return (
     <div className="vm-settings-panel">
+      {toast && (
+        <div className={`footer-toast ${toast.type}`}>
+          <span className="toast-icon">{toast.type === "success" ? "✓" : "✕"}</span>
+          <span>{toast.message}</span>
+        </div>
+      )}
       <div className="vm-settings-header">
         <span className="details-name">{t("tab_settings")}</span>
         <div className="vm-settings-toggle-group">
@@ -999,12 +1027,6 @@ export const VmSettingsTab = ({
               <span className={`vm-settings-dirty ${dirty ? "visible" : ""}`}>
                 ● {t("vm_settings_unsaved")}
               </span>
-              {toast && (
-                <div className={`footer-toast ${toast.type}`}>
-                  <span className="toast-icon">{toast.type === "success" ? "✓" : "✕"}</span>
-                  <span>{toast.message}</span>
-                </div>
-              )}
               <div className="vm-settings-footer-actions">
                 {isStopped && category === "storage" && (
                   <button
@@ -1070,12 +1092,6 @@ export const VmSettingsTab = ({
             <span className={`vm-settings-dirty ${dirty ? "visible" : ""}`}>
               ● {t("vm_settings_unsaved")}
             </span>
-            {toast && (
-              <div className={`footer-toast ${toast.type}`}>
-                <span className="toast-icon">{toast.type === "success" ? "✓" : "✕"}</span>
-                <span>{toast.message}</span>
-              </div>
-            )}
             <div className="vm-settings-footer-actions">
               <button
                 className="btn-reset-settings"

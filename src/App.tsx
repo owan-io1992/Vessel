@@ -38,6 +38,14 @@ function App() {
   const [selectedVmNames, setSelectedVmNames] = useState<string[]>([]);
   const [lastSelectedName, setLastSelectedName] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; vmName: string } | null>(null);
+  const [globalToast, setGlobalToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  
+  const showGlobalToast = (message: string, type: "success" | "error") => {
+    setGlobalToast({ message, type });
+    setTimeout(() => {
+      setGlobalToast((prev) => (prev && prev.message === message ? null : prev));
+    }, 5000);
+  };
   
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     return (localStorage.getItem("virtmanager-flash-theme") as "dark" | "light") || "dark";
@@ -531,10 +539,14 @@ function App() {
 
       if (failures.length > 0) {
         const errorMsgs = failures.map((f) => `${f.name}: ${f.error}`).join("; ");
-        setError(t("err_batch_partial") + errorMsgs);
+        const fullMsg = t("err_batch_partial") + errorMsgs;
+        setError(fullMsg);
+        showGlobalToast(fullMsg, "error");
       }
     } catch (err: any) {
-      setError(t("err_batch_failed") + (err?.toString() || "Unknown error"));
+      const fullMsg = t("err_batch_failed") + (err?.toString() || "Unknown error");
+      setError(fullMsg);
+      showGlobalToast(fullMsg, "error");
     } finally {
       // Clear loading state for all selected VMs
       setActionLoading((prev) => {
@@ -574,6 +586,12 @@ function App() {
 
   return (
     <div className={`app-layout ${theme}-theme`}>
+      {globalToast && (
+        <div className={`footer-toast ${globalToast.type}`} style={{ zIndex: 99999 }}>
+          <span className="toast-icon">{globalToast.type === "success" ? "✓" : "✕"}</span>
+          <span>{globalToast.message}</span>
+        </div>
+      )}
       {/* Sidebar */}
       <aside className="sidebar">
         {/* Sidebar Header (Modular Component) */}

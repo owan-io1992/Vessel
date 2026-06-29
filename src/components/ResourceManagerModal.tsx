@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { NetworkItem, StoragePoolItem, SystemResources } from "../types";
+import { NetworkItem, StoragePoolItem, SystemResources, parseSizeToGb } from "../types";
 import { TranslationKey } from "../translations";
 
 interface ResourceManagerModalProps {
@@ -659,7 +659,7 @@ export const ResourceManagerModal = ({
                                           style={{ background: "none", border: "none", color: "#3B82F6", cursor: "pointer", fontSize: "0.85rem", padding: 0, display: "flex", alignItems: "center" }}
                                           onClick={() => {
                                             setEditingVolumeName(vol.name);
-                                            const currentGb = parseFloat(vol.size) || 10;
+                                            const currentGb = parseSizeToGb(vol.size) || 10;
                                             setEditingVolumeSize(Math.round(currentGb).toString());
                                           }}
                                           title={t("res_vol_edit_size")}
