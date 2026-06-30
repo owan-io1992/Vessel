@@ -7,7 +7,7 @@
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "bun run build",
-    "beforeBundleCommand": "mkdir -p src-tauri/target/release/bundle/appimage/VirtManager-Flash.AppDir/usr/lib && cp -L /usr/lib/x86_64-linux-gnu/libdbus-1.so.3 src-tauri/target/release/bundle/appimage/VirtManager-Flash.AppDir/usr/lib/libdbus-1.so.3",
+    "beforeBundleCommand": "mkdir -p src-tauri/target/release/bundle/appimage/VirtManager-Flash.AppDir/usr/lib && cp -L /usr/lib/$(uname -m)-linux-gnu/libdbus-1.so.3 src-tauri/target/release/bundle/appimage/VirtManager-Flash.AppDir/usr/lib/libdbus-1.so.3",
     "frontendDist": "../dist"
   },
   "app": {
