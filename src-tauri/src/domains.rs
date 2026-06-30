@@ -219,6 +219,7 @@ pub fn delete_vm(name: String, delete_storage: bool) -> Result<(), String> {
 #[tauri::command]
 pub fn open_viewer(name: String) -> Result<(), String> {
     std::process::Command::new("virt-viewer")
+        .arg("--attach")
         .arg("-c")
         .arg("qemu:///system")
         .arg(&name)
@@ -236,14 +237,23 @@ pub fn get_vm_spice_port(name: String) -> Result<u16, String> {
     let xml = dom.get_xml_desc(0)
         .map_err(|e| format!("Failed to get VM XML: {}", e))?;
     
+    // Detect SPICE with GL rendering (listen type='none') — no TCP port available
+    if xml.contains("type='spice'") && (xml.contains("<listen type='none'/>") || xml.contains("listen type=\"none\"")) {
+        return Err("SPICE_GL_NO_PORT".to_string());
+    }
+
     // Check for SPICE graphics port
     if let Some(idx) = xml.find("type='spice'") {
-        if let Some(port_start) = xml[idx..].find("port='") {
-            let start = idx + port_start + 6;
-            if let Some(port_end) = xml[start..].find("'") {
-                let port_str = &xml[start..start + port_end];
-                if let Ok(p) = port_str.parse::<u16>() {
-                    return Ok(p);
+        // Use graphics element boundary to avoid matching 'port=' inside 'autoport='
+        if let Some(elem_end) = xml[idx..].find('>') {
+            let elem = &xml[idx..idx + elem_end];
+            if let Some(port_start) = elem.find(" port='") {
+                let start = idx + port_start + 7;
+                if let Some(port_end) = xml[start..].find("'") {
+                    let port_str = &xml[start..start + port_end];
+                    if let Ok(p) = port_str.parse::<u16>() {
+                        return Ok(p);
+                    }
                 }
             }
         }
@@ -251,12 +261,15 @@ pub fn get_vm_spice_port(name: String) -> Result<u16, String> {
     
     // Fallback: check for VNC graphics port
     if let Some(idx) = xml.find("type='vnc'") {
-        if let Some(port_start) = xml[idx..].find("port='") {
-            let start = idx + port_start + 6;
-            if let Some(port_end) = xml[start..].find("'") {
-                let port_str = &xml[start..start + port_end];
-                if let Ok(p) = port_str.parse::<u16>() {
-                    return Ok(p);
+        if let Some(elem_end) = xml[idx..].find('>') {
+            let elem = &xml[idx..idx + elem_end];
+            if let Some(port_start) = elem.find(" port='") {
+                let start = idx + port_start + 7;
+                if let Some(port_end) = xml[start..].find("'") {
+                    let port_str = &xml[start..start + port_end];
+                    if let Ok(p) = port_str.parse::<u16>() {
+                        return Ok(p);
+                    }
                 }
             }
         }

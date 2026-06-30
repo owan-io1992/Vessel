@@ -714,6 +714,7 @@ function App() {
                       spiceLoading={spiceLoading}
                       spiceError={spiceError}
                       spicePort={spicePort}
+                      onOpenViewer={() => invoke("open_viewer", { name: selectedVm.name })}
                       t={t}
                     />
                   ) : activeTab === "settings" ? (

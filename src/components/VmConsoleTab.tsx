@@ -6,6 +6,7 @@ interface VmConsoleTabProps {
   spiceLoading: boolean;
   spiceError: string | null;
   spicePort: number | null;
+  onOpenViewer: () => void;
   t: (key: TranslationKey) => string;
 }
 
@@ -14,8 +15,11 @@ export const VmConsoleTab = ({
   spiceLoading,
   spiceError,
   spicePort,
+  onOpenViewer,
   t,
 }: VmConsoleTabProps) => {
+  const isGlMode = spiceError === "SPICE_GL_NO_PORT";
+
   return (
     <div className="console-panel">
       {selectedVm.state === 1 ? (
@@ -25,7 +29,30 @@ export const VmConsoleTab = ({
               {t("console_connecting")}
             </div>
           )}
-          {spiceError && (
+          {isGlMode && (
+            <div style={{ padding: "3rem", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.75rem" }}>
+              <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>🖥️</div>
+              <p style={{ color: "#94A3B8", fontSize: "0.95rem", maxWidth: "420px", margin: 0 }}>{t("console_gl_mode")}</p>
+              <p style={{ color: "#64748B", fontSize: "0.8rem", margin: 0 }}>{t("console_gl_mode_sub")}</p>
+              <button
+                onClick={onOpenViewer}
+                style={{
+                  marginTop: "1rem",
+                  padding: "0.5rem 1.25rem",
+                  background: "linear-gradient(135deg, #24C6DC, #514A9D)",
+                  border: "none",
+                  borderRadius: "8px",
+                  color: "#fff",
+                  fontWeight: 600,
+                  fontSize: "0.9rem",
+                  cursor: "pointer",
+                }}
+              >
+                {t("console_open_viewer")}
+              </button>
+            </div>
+          )}
+          {spiceError && !isGlMode && (
             <div className="spice-error-container" style={{ padding: "3rem", color: "#EF4444", textAlign: "center" }}>
               <p>{spiceError}</p>
               <p style={{ fontSize: "0.8rem", color: "#94A3B8" }}>{t("console_error_graphics")}</p>
