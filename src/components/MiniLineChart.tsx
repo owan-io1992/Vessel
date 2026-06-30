@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 interface MiniLineChartProps {
   data: number[];
@@ -23,9 +23,26 @@ export const MiniLineChart = ({
   currentValue,
   lang
 }: MiniLineChartProps) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 500, height: 150 });
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-  const width = 500;
-  const height = 180;
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          setDimensions({ width, height });
+        }
+      }
+    });
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  const { width, height } = dimensions;
+
   const paddingLeft = 45;
   const paddingRight = 15;
   const paddingTop = 15;
@@ -56,7 +73,7 @@ export const MiniLineChart = ({
   // Build coordinates for visible points
   const coords = visibleIndices.map((i) => ({
     x: tsToX(timestamps[i]),
-    y: paddingTop + chartHeight - (data[i] / 100) * chartHeight,
+    y: paddingTop + chartHeight - (Math.min(100, Math.max(0, data[i])) / 100) * chartHeight,
     dataIdx: i,
   }));
 
@@ -129,9 +146,22 @@ export const MiniLineChart = ({
         <span className="chart-label">{label} ({lang === "zh" || !lang ? "10\u5206\u6b77\u53f2\u7d00\u9304" : "10m History"})</span>
         <span className="chart-current-value">{displayVal}</span>
       </div>
-      <div className="svg-wrapper">
+      <div className="svg-wrapper" ref={containerRef}>
         {/* HTML Y-axis labels */}
-        <div className="chart-y-axis">
+        <div 
+          className="chart-y-axis"
+          style={{
+            position: "absolute",
+            left: "5px",
+            top: `${paddingTop}px`,
+            bottom: `${paddingBottom}px`,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            alignItems: "flex-end",
+            pointerEvents: "none"
+          }}
+        >
           <span className="chart-axis-text">100%</span>
           <span className="chart-axis-text">50%</span>
           <span className="chart-axis-text">0%</span>
@@ -141,10 +171,9 @@ export const MiniLineChart = ({
           viewBox={`0 0 ${width} ${height}`} 
           width="100%" 
           height="100%" 
-          preserveAspectRatio="none"
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
-          style={{ cursor: "crosshair" }}
+          style={{ cursor: "crosshair", display: "block" }}
         >
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -204,15 +233,25 @@ export const MiniLineChart = ({
         </svg>
 
         {/* HTML X-axis labels — fixed 10-minute markers */}
-        <div className="chart-x-axis" style={{ position: "relative" }}>
+        <div 
+          className="chart-x-axis" 
+          style={{ 
+            position: "absolute", 
+            left: `${paddingLeft}px`, 
+            right: `${paddingRight}px`,
+            bottom: "4px",
+            display: "flex",
+            justifyContent: "space-between",
+            pointerEvents: "none"
+          }}
+        >
           {xAxisLabels.map((lbl, i) => (
             <span
               key={i}
               className="chart-axis-text"
               style={{
-                position: "absolute",
-                left: `${lbl.pct}%`,
                 transform: "translateX(-50%)",
+                whiteSpace: "nowrap"
               }}
             >
               {lbl.label}
@@ -225,8 +264,8 @@ export const MiniLineChart = ({
           <div 
             className="chart-tooltip"
             style={{
-              left: `${(coords[hoveredIdx].x / width) * 100}%`,
-              top: `${(coords[hoveredIdx].y / height) * 100}%`,
+              left: `${coords[hoveredIdx].x}px`,
+              top: `${coords[hoveredIdx].y}px`,
               transform: coords[hoveredIdx].x > width / 2 ? "translate(-110%, -50%)" : "translate(10px, -50%)"
             }}
           >
