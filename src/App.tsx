@@ -6,6 +6,7 @@ import "./App.css";
 // Modular components
 import { PreferencesModal } from "./components/PreferencesModal";
 import { ResourceManagerModal } from "./components/ResourceManagerModal";
+import { AboutModal } from "./components/AboutModal";
 import { VmSettingsTab } from "./components/VmSettingsTab";
 import { VmList } from "./components/VmList";
 import { SidebarHeader } from "./components/SidebarHeader";
@@ -82,6 +83,7 @@ function App() {
   const [systemResources, setSystemResources] = useState<SystemResources | null>(null);
   const [showPrefModal, setShowPrefModal] = useState(false);
   const [showResModal, setShowResModal] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
   const [libvirtUri, setLibvirtUri] = useState("qemu:///system");
   const [autoconnect, setAutoconnect] = useState(true);
 
@@ -635,6 +637,23 @@ function App() {
           toggleFolderCollapse={toggleFolderCollapse}
           handleContextMenu={handleContextMenu}
         />
+        <div 
+          onClick={() => setShowAboutModal(true)}
+          className="sidebar-version-clickable"
+          style={{
+            marginTop: "auto",
+            paddingTop: "0.5rem",
+            fontSize: "0.75rem",
+            color: "rgba(100, 116, 139, 0.7)",
+            textAlign: "center",
+            fontFamily: "monospace",
+            borderTop: "1px solid rgba(255, 255, 255, 0.05)",
+            cursor: "pointer",
+            userSelect: "none"
+          }}
+        >
+          v{__APP_VERSION__} (About)
+        </div>
       </aside>
 
       {/* Main Details Area */}
@@ -812,6 +831,14 @@ function App() {
         storagePools={storagePools}
         t={t}
         onRefresh={() => { fetchNetworks(); fetchStoragePools(); fetchDomains(); }}
+      />
+
+      {/* About Application Modal */}
+      <AboutModal
+        showAboutModal={showAboutModal}
+        setShowAboutModal={setShowAboutModal}
+        lang={lang}
+        t={t}
       />
     </div>
   );
