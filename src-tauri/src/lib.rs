@@ -5,16 +5,39 @@ pub mod proxy;
 pub mod domains;
 
 use std::sync::Mutex;
+use std::ops::{Deref, DerefMut};
 use virt::connect::Connect;
 
 pub static LIBVIRT_URI: Mutex<Option<String>> = Mutex::new(None);
 
+pub struct SafeConnect(Connect);
+
+impl Deref for SafeConnect {
+    type Target = Connect;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SafeConnect {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Drop for SafeConnect {
+    fn drop(&mut self) {
+        let _ = self.0.close();
+    }
+}
+
 // Public shared helpers used by sub-modules
-pub fn connect_libvirt() -> Result<Connect, String> {
+pub fn connect_libvirt() -> Result<SafeConnect, String> {
     let uri = LIBVIRT_URI.lock().unwrap().clone();
     let uri_str = uri.as_deref().unwrap_or("qemu:///system");
     Connect::open(Some(uri_str))
         .or_else(|_| Connect::open(Some("qemu:///session")))
+        .map(|conn| SafeConnect(conn))
         .map_err(|e| format!("Failed to connect to libvirt: {}", e))
 }
 

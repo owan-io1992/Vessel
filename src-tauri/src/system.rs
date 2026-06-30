@@ -121,8 +121,9 @@ pub fn get_system_resources() -> Result<SystemResources, String> {
 
 #[tauri::command]
 pub fn set_libvirt_uri(uri: String) -> Result<(), String> {
-    Connect::open(Some(&uri))
+    let mut conn = Connect::open(Some(&uri))
         .map_err(|e| format!("Failed to connect with URI '{}': {}", uri, e))?;
+    let _ = conn.close();
     *crate::LIBVIRT_URI.lock().unwrap() = Some(uri);
     Ok(())
 }
