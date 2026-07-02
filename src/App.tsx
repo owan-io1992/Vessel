@@ -412,23 +412,44 @@ function App() {
 
   useEffect(() => {
     const selectedVmName = selectedVmNames[0];
-    if (activeTab === "console" && selectedVmName) {
-      setSpiceLoading(true);
-      setSpiceError(null);
-      setSpicePort(null);
+    if (activeTab !== "console" || !selectedVmName || selectedVmState !== 1) return;
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    setSpiceLoading(true);
+    setSpiceError(null);
+    setSpicePort(null);
+
+    const tryFetch = () => {
       invoke<number>("get_vm_spice_port", { name: selectedVmName })
         .then((port) => {
+          if (cancelled) return;
           setSpicePort(port);
+          setSpiceLoading(false);
         })
         .catch((err) => {
+          if (cancelled) return;
+          const message = err?.toString() || "";
+          // Port not yet allocated by qemu right after start — retry briefly instead of erroring out
+          if (message.includes("SPICE_PORT_NOT_READY") && attempts < maxAttempts) {
+            attempts += 1;
+            setTimeout(tryFetch, 800);
+            return;
+          }
           console.error(err);
-          setSpiceError(err?.toString() || t("err_spice"));
-        })
-        .finally(() => {
+          setSpiceError(message || t("err_spice"));
           setSpiceLoading(false);
         });
-    }
-  }, [activeTab, selectedVmNames]);
+    };
+
+    tryFetch();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, selectedVmNames, selectedVmState]);
 
   // Drag and drop event handlers inside App (context menu folder updates)
   const handleCreateFolder = () => {
@@ -519,7 +540,7 @@ function App() {
   // Batch Action Handler
   const handleBatchAction = async (action: string) => {
     setError(null);
-    
+
     // Set loading state for all selected VMs
     setActionLoading((prev) => {
       const next = { ...prev };
@@ -699,6 +720,18 @@ function App() {
                 >
                   {t("tab_snapshots")}
                 </button>
+                {activeTab === "console" &&
+                  selectedVm?.state === 1 &&
+                  spicePort &&
+                  spiceError !== "SPICE_GL_NO_PORT" && (
+                    <button
+                      className="tab-item"
+                      style={{ marginLeft: "auto" }}
+                      onClick={() => invoke("open_viewer", { name: selectedVm.name })}
+                    >
+                      {t("console_open_viewer")}
+                    </button>
+                  )}
               </div>
             )}
 

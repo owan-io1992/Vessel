@@ -20,7 +20,7 @@ pub fn list_domains() -> Result<Vec<DomainItem>, String> {
     let conn = crate::connect_libvirt()?;
     let domains = conn.list_all_domains(0)
         .map_err(|e| format!("Failed to list domains: {}", e))?;
-    
+
     let mut list = Vec::new();
     for dom in domains {
         let name = dom.get_name().unwrap_or_else(|_| "unknown".to_string());
@@ -98,7 +98,7 @@ pub fn list_domains() -> Result<Vec<DomainItem>, String> {
             cpu_time,
         });
     }
-    
+
     Ok(list)
 }
 
@@ -254,11 +254,15 @@ pub fn get_vm_spice_port(name: String) -> Result<u16, String> {
                     if let Ok(p) = port_str.parse::<u16>() {
                         return Ok(p);
                     }
+                    // port='-1' means libvirt/qemu hasn't allocated the autoport yet
+                    if port_str == "-1" {
+                        return Err("SPICE_PORT_NOT_READY".to_string());
+                    }
                 }
             }
         }
     }
-    
+
     // Fallback: check for VNC graphics port
     if let Some(idx) = xml.find("type='vnc'") {
         if let Some(elem_end) = xml[idx..].find('>') {
@@ -270,11 +274,14 @@ pub fn get_vm_spice_port(name: String) -> Result<u16, String> {
                     if let Ok(p) = port_str.parse::<u16>() {
                         return Ok(p);
                     }
+                    if port_str == "-1" {
+                        return Err("SPICE_PORT_NOT_READY".to_string());
+                    }
                 }
             }
         }
     }
-    
+
     Err("No graphics display (SPICE or VNC) found for this VM".to_string())
 }
 
@@ -639,10 +646,43 @@ fn update_graphics_xml(xml: &str, graphics_type: &str) -> String {
     }
 }
 
+fn remove_attr_from_tag(block: &str, tag_prefix: &str, attr: &str) -> String {
+    if let Some(tag_idx) = block.find(tag_prefix) {
+        if let Some(rel_end) = block[tag_idx..].find('>') {
+            let tag_end = tag_idx + rel_end + 1;
+            let mut tag = block[tag_idx..tag_end].to_string();
+            for pat in [format!(" {}='", attr), format!(" {}=\"", attr)] {
+                if let Some(attr_idx) = tag.find(&pat) {
+                    let quote_char = pat.chars().last().unwrap();
+                    let val_start = attr_idx + pat.len();
+                    if let Some(end_rel) = tag[val_start..].find(quote_char) {
+                        let val_end = val_start + end_rel + 1;
+                        tag.replace_range(attr_idx..val_end, "");
+                    }
+                    break;
+                }
+            }
+            let mut result = String::new();
+            result.push_str(&block[..tag_idx]);
+            result.push_str(&tag);
+            result.push_str(&block[tag_end..]);
+            return result;
+        }
+    }
+    block.to_string()
+}
+
 fn update_video_xml(xml: &str, video_model: &str) -> String {
     if xml.contains("<video") {
         map_blocks(xml, "<video", "</video>", |block| {
-            replace_attr_in_block(block, "<model", "type", video_model)
+            let mut b = replace_attr_in_block(block, "<model", "type", video_model);
+            if video_model != "qxl" {
+                // ram/vram/vram64/vgamem are only valid on the qxl video model
+                for attr in ["ram", "vram", "vram64", "vgamem"] {
+                    b = remove_attr_from_tag(&b, "<model", attr);
+                }
+            }
+            b
         })
     } else {
         xml.to_string()
