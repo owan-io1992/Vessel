@@ -9,6 +9,8 @@ interface PreferencesModalProps {
   setLang: (lang: "zh" | "en") => void;
   autoconnect: boolean;
   setAutoconnect: (auto: boolean) => void;
+  metricsEnabled: boolean;
+  setMetricsEnabled: (enabled: boolean) => void;
   t: (key: TranslationKey) => string;
 }
 
@@ -21,6 +23,8 @@ export const PreferencesModal = ({
   setLang,
   autoconnect,
   setAutoconnect,
+  metricsEnabled,
+  setMetricsEnabled,
   t,
 }: PreferencesModalProps) => {
   if (!showPrefModal) return null;
@@ -67,6 +71,16 @@ export const PreferencesModal = ({
                 className="form-checkbox"
                 checked={autoconnect}
                 onChange={(e) => setAutoconnect(e.target.checked)}
+              />
+            </div>
+
+            <div className="form-row" style={{ marginTop: "1.25rem" }}>
+              <span className="form-label">{t("pref_enable_metrics")}</span>
+              <input
+                type="checkbox"
+                className="form-checkbox"
+                checked={metricsEnabled}
+                onChange={(e) => setMetricsEnabled(e.target.checked)}
               />
             </div>
           </div>

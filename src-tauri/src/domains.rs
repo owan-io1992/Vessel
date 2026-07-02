@@ -24,7 +24,8 @@ pub struct DomainItem {
 }
 
 #[tauri::command]
-pub fn list_domains() -> Result<Vec<DomainItem>, String> {
+pub fn list_domains(include_stats: Option<bool>) -> Result<Vec<DomainItem>, String> {
+    let include_stats = include_stats.unwrap_or(true);
     let conn = crate::connect_libvirt()?;
     let domains = conn.list_all_domains(0)
         .map_err(|e| format!("Failed to list domains: {}", e))?;
@@ -72,57 +73,59 @@ pub fn list_domains() -> Result<Vec<DomainItem>, String> {
         }
 
         if state == 1 || state == 3 {
-            // Enable balloon memory stats collection (no-op if already set)
-            let _ = dom.set_memory_stats_period(2, 0);
-            if let Ok(stats) = dom.memory_stats(0) {
-                let mut unused_balloon = 0u64; // tag 4: balloon driver free (Linux)
-                let mut usable_agent = 0u64;   // tag 8: guest agent free (Windows+agent)
-                let mut available = 0u64;      // tag 5: total mem from guest OS
-                let mut balloon_size = 0u64;   // tag 6: actual balloon size
-                let mut rss = 0u64;            // tag 7: host RSS (fallback for Windows without balloon)
-                for stat in stats {
-                    match stat.tag {
-                        4 => unused_balloon = stat.val,
-                        5 => available = stat.val,
-                        6 => balloon_size = stat.val,
-                        7 => rss = stat.val,
-                        8 => usable_agent = stat.val,
-                        _ => {}
-                    }
-                }
-                // Prefer guest-agent-reported free (tag 8), fall back to balloon driver (tag 4)
-                let free = if usable_agent > 0 { usable_agent } else { unused_balloon };
-                // Prefer guest OS total (tag 5), fall back to balloon size (tag 6)
-                let total = if available > 0 { available } else { balloon_size };
-
-                if free > 0 && total > 0 && total >= free {
-                    memory = total - free;
-                } else if rss > 0 {
-                    // Fallback for Windows without virtio-balloon driver
-                    memory = rss;
-                }
-            }
-            
-            // Get disk and network stats
-            if let Ok(xml) = dom.get_xml_desc(0) {
-                for block in collect_blocks(&xml, "<disk", "</disk>") {
-                    if let Some(target_dev) = get_attr_in_block(&block, "<target", "dev") {
-                        if let Ok(stats) = dom.get_block_stats(&target_dev) {
-                            disk_rd_req += stats.rd_req;
-                            disk_rd_bytes += stats.rd_bytes;
-                            disk_wr_req += stats.wr_req;
-                            disk_wr_bytes += stats.wr_bytes;
+            if include_stats {
+                // Enable balloon memory stats collection (no-op if already set)
+                let _ = dom.set_memory_stats_period(2, 0);
+                if let Ok(stats) = dom.memory_stats(0) {
+                    let mut unused_balloon = 0u64; // tag 4: balloon driver free (Linux)
+                    let mut usable_agent = 0u64;   // tag 8: guest agent free (Windows+agent)
+                    let mut available = 0u64;      // tag 5: total mem from guest OS
+                    let mut balloon_size = 0u64;   // tag 6: actual balloon size
+                    let mut rss = 0u64;            // tag 7: host RSS (fallback for Windows without balloon)
+                    for stat in stats {
+                        match stat.tag {
+                            4 => unused_balloon = stat.val,
+                            5 => available = stat.val,
+                            6 => balloon_size = stat.val,
+                            7 => rss = stat.val,
+                            8 => usable_agent = stat.val,
+                            _ => {}
                         }
+                    }
+                    // Prefer guest-agent-reported free (tag 8), fall back to balloon driver (tag 4)
+                    let free = if usable_agent > 0 { usable_agent } else { unused_balloon };
+                    // Prefer guest OS total (tag 5), fall back to balloon size (tag 6)
+                    let total = if available > 0 { available } else { balloon_size };
+
+                    if free > 0 && total > 0 && total >= free {
+                        memory = total - free;
+                    } else if rss > 0 {
+                        // Fallback for Windows without virtio-balloon driver
+                        memory = rss;
                     }
                 }
                 
-                for block in collect_blocks(&xml, "<interface", "</interface>") {
-                    if let Some(target_dev) = get_attr_in_block(&block, "<target", "dev") {
-                        if let Ok(stats) = dom.interface_stats(&target_dev) {
-                            net_rx_bytes += stats.rx_bytes;
-                            net_rx_packets += stats.rx_packets;
-                            net_tx_bytes += stats.tx_bytes;
-                            net_tx_packets += stats.tx_packets;
+                // Get disk and network stats
+                if let Ok(xml) = dom.get_xml_desc(0) {
+                    for block in collect_blocks(&xml, "<disk", "</disk>") {
+                        if let Some(target_dev) = get_attr_in_block(&block, "<target", "dev") {
+                            if let Ok(stats) = dom.get_block_stats(&target_dev) {
+                                disk_rd_req += stats.rd_req;
+                                disk_rd_bytes += stats.rd_bytes;
+                                disk_wr_req += stats.wr_req;
+                                disk_wr_bytes += stats.wr_bytes;
+                            }
+                        }
+                    }
+                    
+                    for block in collect_blocks(&xml, "<interface", "</interface>") {
+                        if let Some(target_dev) = get_attr_in_block(&block, "<target", "dev") {
+                            if let Ok(stats) = dom.interface_stats(&target_dev) {
+                                net_rx_bytes += stats.rx_bytes;
+                                net_rx_packets += stats.rx_packets;
+                                net_tx_bytes += stats.tx_bytes;
+                                net_tx_packets += stats.tx_packets;
+                            }
                         }
                     }
                 }

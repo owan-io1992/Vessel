@@ -26,6 +26,7 @@ interface VmStatusTabProps {
   theme: "dark" | "light" | "sketch";
   lang: "zh" | "en";
   guestAgentAvailable: boolean;
+  metricsEnabled: boolean;
   t: (key: TranslationKey) => string;
 }
 
@@ -74,6 +75,7 @@ export const VmStatusTab = ({
   theme,
   lang: _lang,
   guestAgentAvailable,
+  metricsEnabled,
   t,
 }: VmStatusTabProps) => {
   const history = metricsHistory[selectedVm.name] || [];
@@ -127,100 +129,121 @@ export const VmStatusTab = ({
       )}
 
       {/* Real-Time Metrics */}
-      <div className="metrics-section">
-        <div className="metric-card">
-          <MiniLineChart
-            data={history.map(p => p.cpu)}
-            timestamps={history.map(p => p.timestamp)}
-            color={theme === "dark" ? "#24C6DC" : "#0891B2"}
-            gradientId="cpuHistoryGrad"
-            label={t("cpu_usage")}
-            currentValue={`${(cpuUsage[selectedVm.name] || 0).toFixed(1)}%`}
-            lang={_lang}
-          />
-        </div>
+      {metricsEnabled ? (
+        <div className="metrics-section">
+          <div className="metric-card">
+            <MiniLineChart
+              data={history.map(p => p.cpu)}
+              timestamps={history.map(p => p.timestamp)}
+              color={theme === "dark" ? "#24C6DC" : "#0891B2"}
+              gradientId="cpuHistoryGrad"
+              label={t("cpu_usage")}
+              currentValue={`${(cpuUsage[selectedVm.name] || 0).toFixed(1)}%`}
+              lang={_lang}
+            />
+          </div>
 
-        <div className="metric-card">
-          <MiniLineChart
-            data={history.map(p => p.memoryPercent)}
-            timestamps={history.map(p => p.timestamp)}
-            hoverLabels={history.map(p =>
-              p.memoryUsedKb > 0
-                ? `${formatMemory(p.memoryUsedKb)} / ${formatMemory(p.memoryMaxKb)} (${p.memoryPercent.toFixed(1)}%)`
-                : `0 MB / ${formatMemory(p.memoryMaxKb)} (0.0%)`
-            )}
-            color={theme === "dark" ? "#A855F7" : "#C084FC"}
-            gradientId="memHistoryGrad"
-            label={t("memory_usage")}
-            currentValue={`${formatMemory(selectedVm.memory)} / ${formatMemory(selectedVm.max_mem)} (${selectedVm.max_mem > 0 ? ((selectedVm.memory / selectedVm.max_mem) * 100).toFixed(1) : "0.0"}%)`}
-            lang={_lang}
-          />
-        </div>
+          <div className="metric-card">
+            <MiniLineChart
+              data={history.map(p => p.memoryPercent)}
+              timestamps={history.map(p => p.timestamp)}
+              hoverLabels={history.map(p =>
+                p.memoryUsedKb > 0
+                  ? `${formatMemory(p.memoryUsedKb)} / ${formatMemory(p.memoryMaxKb)} (${p.memoryPercent.toFixed(1)}%)`
+                  : `0 MB / ${formatMemory(p.memoryMaxKb)} (0.0%)`
+              )}
+              color={theme === "dark" ? "#A855F7" : "#C084FC"}
+              gradientId="memHistoryGrad"
+              label={t("memory_usage")}
+              currentValue={`${formatMemory(selectedVm.memory)} / ${formatMemory(selectedVm.max_mem)} (${selectedVm.max_mem > 0 ? ((selectedVm.memory / selectedVm.max_mem) * 100).toFixed(1) : "0.0"}%)`}
+              lang={_lang}
+            />
+          </div>
 
-        <div className="metric-card">
-          <MiniLineChart
-            data={history.map(p => p.diskReadSpeed + p.diskWriteSpeed)}
-            timestamps={history.map(p => p.timestamp)}
-            hoverLabels={history.map(p =>
-              `R: ${formatSpeed(p.diskReadSpeed)} | W: ${formatSpeed(p.diskWriteSpeed)}`
-            )}
-            color={theme === "dark" ? "#10B981" : "#059669"}
-            gradientId="diskSpeedHistoryGrad"
-            label={t("disk_io_throughput")}
-            currentValue={`R: ${formatSpeed(currentDiskRead)} | W: ${formatSpeed(currentDiskWrite)}`}
-            lang={_lang}
-            yLabelFormatter={formatSpeed}
-          />
-        </div>
+          <div className="metric-card">
+            <MiniLineChart
+              data={history.map(p => p.diskReadSpeed + p.diskWriteSpeed)}
+              timestamps={history.map(p => p.timestamp)}
+              hoverLabels={history.map(p =>
+                `R: ${formatSpeed(p.diskReadSpeed)} | W: ${formatSpeed(p.diskWriteSpeed)}`
+              )}
+              color={theme === "dark" ? "#10B981" : "#059669"}
+              gradientId="diskSpeedHistoryGrad"
+              label={t("disk_io_throughput")}
+              currentValue={`R: ${formatSpeed(currentDiskRead)} | W: ${formatSpeed(currentDiskWrite)}`}
+              lang={_lang}
+              yLabelFormatter={formatSpeed}
+            />
+          </div>
 
-        <div className="metric-card">
-          <MiniLineChart
-            data={history.map(p => p.diskReadIops + p.diskWriteIops)}
-            timestamps={history.map(p => p.timestamp)}
-            hoverLabels={history.map(p =>
-              `R: ${formatIops(p.diskReadIops)} | W: ${formatIops(p.diskWriteIops)} IOPS`
-            )}
-            color={theme === "dark" ? "#F59E0B" : "#D97706"}
-            gradientId="diskIopsHistoryGrad"
-            label={t("disk_io_iops")}
-            currentValue={`R: ${formatIops(currentDiskReadIops)} | W: ${formatIops(currentDiskWriteIops)} IOPS`}
-            lang={_lang}
-            yLabelFormatter={formatIops}
-          />
-        </div>
+          <div className="metric-card">
+            <MiniLineChart
+              data={history.map(p => p.diskReadIops + p.diskWriteIops)}
+              timestamps={history.map(p => p.timestamp)}
+              hoverLabels={history.map(p =>
+                `R: ${formatIops(p.diskReadIops)} | W: ${formatIops(p.diskWriteIops)} IOPS`
+              )}
+              color={theme === "dark" ? "#F59E0B" : "#D97706"}
+              gradientId="diskIopsHistoryGrad"
+              label={t("disk_io_iops")}
+              currentValue={`R: ${formatIops(currentDiskReadIops)} | W: ${formatIops(currentDiskWriteIops)} IOPS`}
+              lang={_lang}
+              yLabelFormatter={formatIops}
+            />
+          </div>
 
-        <div className="metric-card">
-          <MiniLineChart
-            data={history.map(p => p.netRxSpeed + p.netTxSpeed)}
-            timestamps={history.map(p => p.timestamp)}
-            hoverLabels={history.map(p =>
-              `RX: ${formatSpeed(p.netRxSpeed)} | TX: ${formatSpeed(p.netTxSpeed)}`
-            )}
-            color={theme === "dark" ? "#3B82F6" : "#2563EB"}
-            gradientId="netSpeedHistoryGrad"
-            label={t("net_io_throughput")}
-            currentValue={`RX: ${formatSpeed(currentNetRx)} | TX: ${formatSpeed(currentNetTx)}`}
-            lang={_lang}
-            yLabelFormatter={formatSpeed}
-          />
-        </div>
+          <div className="metric-card">
+            <MiniLineChart
+              data={history.map(p => p.netRxSpeed + p.netTxSpeed)}
+              timestamps={history.map(p => p.timestamp)}
+              hoverLabels={history.map(p =>
+                `RX: ${formatSpeed(p.netRxSpeed)} | TX: ${formatSpeed(p.netTxSpeed)}`
+              )}
+              color={theme === "dark" ? "#3B82F6" : "#2563EB"}
+              gradientId="netSpeedHistoryGrad"
+              label={t("net_io_throughput")}
+              currentValue={`RX: ${formatSpeed(currentNetRx)} | TX: ${formatSpeed(currentNetTx)}`}
+              lang={_lang}
+              yLabelFormatter={formatSpeed}
+            />
+          </div>
 
-        <div className="metric-card">
-          <MiniLineChart
-            data={history.map(p => p.netRxPackets + p.netTxPackets)}
-            timestamps={history.map(p => p.timestamp)}
-            hoverLabels={history.map(p =>
-              `RX: ${formatIops(p.netRxPackets)} | TX: ${formatIops(p.netTxPackets)} Pkts/s`
-            )}
-            color={theme === "dark" ? "#EC4899" : "#DB2777"}
-            gradientId="netPacketsHistoryGrad"
-            label={t("net_io_packets")}
-            currentValue={`RX: ${formatIops(currentNetRxPackets)} | TX: ${formatIops(currentNetTxPackets)} Pkts/s`}
-            lang={_lang}
-            yLabelFormatter={formatIops}
-          />
+          <div className="metric-card">
+            <MiniLineChart
+              data={history.map(p => p.netRxPackets + p.netTxPackets)}
+              timestamps={history.map(p => p.timestamp)}
+              hoverLabels={history.map(p =>
+                `RX: ${formatIops(p.netRxPackets)} | TX: ${formatIops(p.netTxPackets)} Pkts/s`
+              )}
+              color={theme === "dark" ? "#EC4899" : "#DB2777"}
+              gradientId="netPacketsHistoryGrad"
+              label={t("net_io_packets")}
+              currentValue={`RX: ${formatIops(currentNetRxPackets)} | TX: ${formatIops(currentNetTxPackets)} Pkts/s`}
+              lang={_lang}
+              yLabelFormatter={formatIops}
+            />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="metrics-disabled-card" style={{
+          marginTop: "1.5rem",
+          padding: "2rem",
+          textAlign: "center",
+          background: "var(--bg-card, rgba(30, 41, 59, 0.5))",
+          border: "1px dashed var(--border-color, rgba(148, 163, 184, 0.3))",
+          borderRadius: "12px",
+          color: "var(--text-muted, #94A3B8)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "0.75rem"
+        }}>
+          <div style={{ fontSize: "2.5rem" }}>📊</div>
+          <p style={{ margin: 0, fontSize: "0.95rem", maxWidth: "450px", lineHeight: "1.5" }}>
+            {t("metrics_disabled_msg")}
+          </p>
+        </div>
+      )}
     </>
   );
 };

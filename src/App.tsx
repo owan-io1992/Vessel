@@ -86,6 +86,10 @@ function App() {
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [libvirtUri, setLibvirtUri] = useState("qemu:///system");
   const [autoconnect, setAutoconnect] = useState(true);
+  const [metricsEnabled, setMetricsEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem("virtmanager-flash-metrics-enabled");
+    return saved !== null ? saved === "true" : true;
+  });
 
   const [networks, setNetworks] = useState<NetworkItem[]>([]);
   const [storagePools, setStoragePools] = useState<StoragePoolItem[]>([]);
@@ -103,6 +107,13 @@ function App() {
   useEffect(() => {
     localStorage.setItem("virtmanager-flash-folders", JSON.stringify(folders));
   }, [folders]);
+
+  const metricsEnabledRef = useRef(metricsEnabled);
+
+  useEffect(() => {
+    localStorage.setItem("virtmanager-flash-metrics-enabled", String(metricsEnabled));
+    metricsEnabledRef.current = metricsEnabled;
+  }, [metricsEnabled]);
 
   useEffect(() => {
     localStorage.setItem("virtmanager-flash-top-level-order", JSON.stringify(topLevelOrder));
@@ -187,7 +198,7 @@ function App() {
     fetchNetworks();
     fetchStoragePools();
     try {
-      const list = await invoke<DomainItem[]>("list_domains");
+      const list = await invoke<DomainItem[]>("list_domains", { includeStats: metricsEnabledRef.current });
       
       const now = Date.now();
       const nextCpuUsage: { [name: string]: number } = {};
@@ -294,41 +305,45 @@ function App() {
         };
       });
 
-      setMetricsHistory((prevHistory) => {
-        const nextHistory = { ...prevHistory };
-        
-        list.forEach((vm) => {
-          if (vm.state !== 1) {
-            // VM is not running — clear history so chart starts fresh on next boot
-            delete nextHistory[vm.name];
-            return;
-          }
-          const m = vmMetrics[vm.name];
-          const vmHist = nextHistory[vm.name] || [];
-          const updated = [...vmHist, { 
-            cpu: m.cpuPercent, 
-            memoryPercent: m.memPercent, 
-            memoryUsedKb: m.memUsed, 
-            memoryMaxKb: m.memMax, 
-            diskReadSpeed: m.diskReadSpeed,
-            diskWriteSpeed: m.diskWriteSpeed,
-            diskReadIops: m.diskReadIops,
-            diskWriteIops: m.diskWriteIops,
-            netRxSpeed: m.netRxSpeed,
-            netTxSpeed: m.netTxSpeed,
-            netRxPackets: m.netRxPackets,
-            netTxPackets: m.netTxPackets,
-            timestamp: now 
-          }];
-          if (updated.length > 300) {
-            nextHistory[vm.name] = updated.slice(updated.length - 300);
-          } else {
-            nextHistory[vm.name] = updated;
-          }
+      if (metricsEnabled) {
+        setMetricsHistory((prevHistory) => {
+          const nextHistory = { ...prevHistory };
+          
+          list.forEach((vm) => {
+            if (vm.state !== 1) {
+              // VM is not running — clear history so chart starts fresh on next boot
+              delete nextHistory[vm.name];
+              return;
+            }
+            const m = vmMetrics[vm.name];
+            const vmHist = nextHistory[vm.name] || [];
+            const updated = [...vmHist, { 
+              cpu: m.cpuPercent, 
+              memoryPercent: m.memPercent, 
+              memoryUsedKb: m.memUsed, 
+              memoryMaxKb: m.memMax, 
+              diskReadSpeed: m.diskReadSpeed,
+              diskWriteSpeed: m.diskWriteSpeed,
+              diskReadIops: m.diskReadIops,
+              diskWriteIops: m.diskWriteIops,
+              netRxSpeed: m.netRxSpeed,
+              netTxSpeed: m.netTxSpeed,
+              netRxPackets: m.netRxPackets,
+              netTxPackets: m.netTxPackets,
+              timestamp: now 
+            }];
+            if (updated.length > 300) {
+              nextHistory[vm.name] = updated.slice(updated.length - 300);
+            } else {
+              nextHistory[vm.name] = updated;
+            }
+          });
+          
+          return nextHistory;
         });
-        
-        return nextHistory;
-      });
+      } else {
+        setMetricsHistory({});
+      }
 
       setCpuUsage((prev) => ({ ...prev, ...nextCpuUsage }));
       setDomains(list);
@@ -855,6 +870,7 @@ function App() {
                       theme={theme}
                       lang={lang}
                       guestAgentAvailable={guestAgentAvailable[selectedVm.name] ?? false}
+                      metricsEnabled={metricsEnabled}
                       t={t}
                     />
                   ) : activeTab === "console" ? (
@@ -937,6 +953,8 @@ function App() {
         setLang={setLang}
         autoconnect={autoconnect}
         setAutoconnect={setAutoconnect}
+        metricsEnabled={metricsEnabled}
+        setMetricsEnabled={setMetricsEnabled}
         t={t}
       />
 
